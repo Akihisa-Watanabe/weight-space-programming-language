@@ -1,0 +1,11 @@
+# Paper PDFs stay local: most of their licenses do not allow redistribution.
+third_party/papers/**/*.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+
+# OS
+.DS_Store

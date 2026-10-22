@@ -1,0 +1,140 @@
+[submodule "third_party/EasyEdit"]
+	path = third_party/EasyEdit
+	url = https://github.com/zjunlp/EasyEdit
+	shallow = true
+[submodule "third_party/rome"]
+	path = third_party/rome
+	url = https://github.com/kmeng01/rome
+	shallow = true
+[submodule "third_party/memit"]
+	path = third_party/memit
+	url = https://github.com/kmeng01/memit
+	shallow = true
+[submodule "third_party/AlphaEdit"]
+	path = third_party/AlphaEdit
+	url = https://github.com/jianghoucheng/AlphaEdit
+	shallow = true
+[submodule "third_party/unified-model-editing"]
+	path = third_party/unified-model-editing
+	url = https://github.com/scalable-model-editing/unified-model-editing
+	shallow = true
+[submodule "third_party/RippleEdits"]
+	path = third_party/RippleEdits
+	url = https://github.com/edenbiran/RippleEdits
+	shallow = true
+[submodule "third_party/MQuAKE"]
+	path = third_party/MQuAKE
+	url = https://github.com/princeton-nlp/MQuAKE
+	shallow = true
+[submodule "third_party/tracr"]
+	path = third_party/tracr
+	url = https://github.com/google-deepmind/tracr
+	shallow = true
+[submodule "third_party/RASP"]
+	path = third_party/RASP
+	url = https://github.com/tech-srl/RASP
+	shallow = true
+[submodule "third_party/alta"]
+	path = third_party/alta
+	url = https://github.com/google-deepmind/alta
+	shallow = true
+[submodule "third_party/InterpBench"]
+	path = third_party/InterpBench
+	url = https://github.com/FlyingPumba/InterpBench
+	shallow = true
+[submodule "third_party/mergekit"]
+	path = third_party/mergekit
+	url = https://github.com/arcee-ai/mergekit
+	shallow = true
+[submodule "third_party/brainsurgery"]
+	path = third_party/brainsurgery
+	url = https://github.com/schneiderkamplab/brainsurgery
+	shallow = true
+[submodule "third_party/evolutionary-model-merge"]
+	path = third_party/evolutionary-model-merge
+	url = https://github.com/SakanaAI/evolutionary-model-merge
+	shallow = true
+[submodule "third_party/task_vectors"]
+	path = third_party/task_vectors
+	url = https://github.com/mlfoundations/task_vectors
+	shallow = true
+[submodule "third_party/dataless-model-merging"]
+	path = third_party/dataless-model-merging
+	url = https://github.com/bloomberg/dataless-model-merging
+	shallow = true
+[submodule "third_party/composable-interventions"]
+	path = third_party/composable-interventions
+	url = https://github.com/hartvigsen-group/composable-interventions
+	shallow = true
+[submodule "third_party/TransformerLens"]
+	path = third_party/TransformerLens
+	url = https://github.com/TransformerLensOrg/TransformerLens
+	shallow = true
+[submodule "third_party/nnsight"]
+	path = third_party/nnsight
+	url = https://github.com/ndif-team/nnsight
+	shallow = true
+[submodule "third_party/pyvene"]
+	path = third_party/pyvene
+	url = https://github.com/stanfordnlp/pyvene
+	shallow = true
+[submodule "third_party/PRDNN"]
+	path = third_party/PRDNN
+	url = https://github.com/95616ARG/PRDNN
+	shallow = true
+[submodule "third_party/APRNN"]
+	path = third_party/APRNN
+	url = https://github.com/95616ARG/APRNN
+	shallow = true
+[submodule "third_party/vehicle"]
+	path = third_party/vehicle
+	url = https://github.com/vehicle-lang/vehicle
+	shallow = true
+[submodule "third_party/concept-erasure"]
+	path = third_party/concept-erasure
+	url = https://github.com/EleutherAI/concept-erasure
+	shallow = true
+[submodule "third_party/refusal_direction"]
+	path = third_party/refusal_direction
+	url = https://github.com/andyrdt/refusal_direction
+	shallow = true
+[submodule "third_party/learned_optimization"]
+	path = third_party/learned_optimization
+	url = https://github.com/google/learned_optimization
+	shallow = true
+[submodule "third_party/ShinkaEvolve"]
+	path = third_party/ShinkaEvolve
+	url = https://github.com/SakanaAI/ShinkaEvolve
+	shallow = true
+[submodule "third_party/openevolve"]
+	path = third_party/openevolve
+	url = https://github.com/algorithmicsuperintelligence/openevolve
+	shallow = true
+[submodule "third_party/SEAL"]
+	path = third_party/SEAL
+	url = https://github.com/Continual-Intelligence/SEAL
+	shallow = true
+[submodule "third_party/text-to-lora"]
+	path = third_party/text-to-lora
+	url = https://github.com/SakanaAI/text-to-lora
+	shallow = true
+[submodule "third_party/modula"]
+	path = third_party/modula
+	url = https://github.com/modula-systems/modula
+	shallow = true
+[submodule "third_party/Muon"]
+	path = third_party/Muon
+	url = https://github.com/KellerJordan/Muon
+	shallow = true
+[submodule "third_party/GPM"]
+	path = third_party/GPM
+	url = https://github.com/sahagobinda/GPM
+	shallow = true
+[submodule "third_party/Adam-NSCL"]
+	path = third_party/Adam-NSCL
+	url = https://github.com/ShipengWang/Adam-NSCL
+	shallow = true
+[submodule "third_party/InfLoRA"]
+	path = third_party/InfLoRA
+	url = https://github.com/liangyanshuo/InfLoRA
+	shallow = true
