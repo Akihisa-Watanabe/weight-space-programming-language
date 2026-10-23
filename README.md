@@ -92,6 +92,14 @@ uv run pytest -q                 # テスト（data/hf の極小モデルを使�
 git submodule update --init      # 参照実装（third_party/、浅い clone）
 ```
 
+GPU サーバーでは `/home` が NFS で、そこに Python や `.venv` を置くと `import torch` だけで十数分かかります。`.venv` は各マシンのローカルディスク `/scratch` へのシンボリックリンクにしてあるので、マシンごとに一度、上の `uv sync` の代わりに次を実行してください。
+
+```sh
+UV_PYTHON_INSTALL_DIR=/scratch/$USER/uv-python uv python install 3.13 --no-bin
+mkdir -p /scratch/$USER/agentic_optimization/.venv
+UV_CACHE_DIR=/scratch/$USER/uv-cache uv sync --python /scratch/$USER/uv-python/cpython-3.13-linux-x86_64-gnu/bin/python3.13
+```
+
 モデル・データセット・実験結果は `data/` に置き、git では追跡しません。論文のPDF（`third_party/papers/`）も追跡せず、[論文一覧](third_party/papers/README.md) のリンクから取得します。
 
 ## 構成

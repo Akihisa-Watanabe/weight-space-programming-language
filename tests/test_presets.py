@@ -81,9 +81,10 @@ def test_targets_start_at_the_current_output_and_leave_the_model_as_it_was(tiny)
     one_step = dict(hp["rome"]["opt"], steps=1)  # the loop stops before its first update: δ = 0
     a0 = at_subject(model, site, [r])[:, 0]
     V = targets.optimize_values(model, site, [r], TEMPLATES, **one_step)
-    assert np.allclose(V.data[:, 0], a0 - bias(model, site), rtol=1e-5, atol=1e-8)  # W k₀: the bias is not in V
+    # float32 activations of order 1 from two forward paths: their rounding differs by a few ulp, and by CPU
+    assert np.allclose(V.data[:, 0], a0 - bias(model, site), rtol=1e-5, atol=1e-6)  # W k₀: the bias is not in V
     Z = targets.optimize_residual(model, layer, [r], TEMPLATES, **one_step)
-    assert np.allclose(Z[:, 0], at_subject(model, block.format(layer), [r])[:, 0], rtol=1e-5, atol=1e-8)
+    assert np.allclose(Z[:, 0], at_subject(model, block.format(layer), [r])[:, 0], rtol=1e-5, atol=1e-6)
     V = targets.optimize_values(model, site, [r], TEMPLATES, **hp["rome"]["opt"])
     delta = V.data[:, 0] - (a0 - bias(model, site))
     assert 0 < np.linalg.norm(delta) <= hp["rome"]["opt"]["clamp_norm_factor"] * np.linalg.norm(a0) * (1 + 1e-5)
