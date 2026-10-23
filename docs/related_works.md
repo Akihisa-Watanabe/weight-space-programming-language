@@ -110,7 +110,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[Evaluating the Ripple Effects of Knowledge Editing (RippleEdits)](https://arxiv.org/abs/2307.12976)**（Cohen et al., TACL 2024）[PDF](../third_party/papers/editing/cohen2024_rippleedits.pdf)
   5千件の編集と6つの基準で、編集から論理的に導かれる事実への波及を測る。編集手法はどれも波及に失敗し、文脈内で知識を与える単純な方法が最も良い。
-  → 評価（T3）に使う。
+  → GPT-2 XL の ROME・MEMIT の数値があるので、最初の課題（T2）の「未見の組み合わせ」の評価に使う。
 
 - **[Model Editing at Scale leads to Gradual and Catastrophic Forgetting](https://arxiv.org/abs/2401.07453)**（Gupta et al., ACL 2024 Findings）[PDF](../third_party/papers/editing/gupta2024_forgetting.pdf)
   ROME と MEMIT の逐次編集で、忘却が徐々に、やがて急激に進む。モデルを壊す編集は、ノルムが大きい。

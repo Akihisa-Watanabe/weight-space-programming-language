@@ -4,14 +4,64 @@
 
 ## 1. 問い
 
-1. **編集だけで学習できるか。** 毎ステップの重みの変化を、勾配法の更新則ではなく `wir.edit` の閉形式の解だけで作って、普通の最適化器と同じように学習できるか（分類、強化学習）。
-2. **LLMが試行を重ねると、良いプログラムを書けるか。** 20回の試行でLLMが選んだプログラム（`agent-<モデル>`）は、例のプログラム（`agent-fixed`）や、同じ20回で学習率を選んだ Adam（`adam-tuned`）より良いか。
-3. **既存の編集手法をプリセットとして再現できるか。** ROME・EMMET・MEMIT・AlphaEdit を WeightIR の編集として書き、CounterFact で元の論文に近い数値が出るか。
-4. **主実験（未実装）。** 同じ数値計算部分を使ったとき、LLMは素の Python や JSON よりこのDSLで良い編集を書けるか（8節）。
+1. **依頼から LLM が書いた編集プログラムで、モデルに機能を加えられるか。** 機能の追加・保存・合成・未見の組み合わせの4つの基準（[architecture.md](architecture.md) 1節）で、同じバックエンドで動かした既存の編集手法と比べます。最初の課題は GPT-2 での事実の編集です（2節、未実施）。
+2. **主実験。** 同じ数値計算部分を使ったとき、LLM は素の Python や JSON より、この DSL で良い編集を書けるか（7節、未実施）。
+3. **既存の編集手法を、プリセットとして再現できるか。** ROME・EMMET・MEMIT・AlphaEdit を WeightIR の編集として書き、CounterFact で元の論文に近い数値が出るか（3節）。1と2の比較の基準になります。
+4. **内側の道具は働くか。** 毎ステップの重みの変化を `wir.edit` の閉形式の解だけで作って、ネットワークを学習できるか。LLM が試行を重ねると、その手順は良くなるか（分類、強化学習。4〜5節、実施済み）。
 
-## 2. 共通の設定
+## 2. 事実の編集（GPT-2）
 
-学習の実験では、最適化器を [experiments/optimizers.py](../experiments/optimizers.py) の `OPTIMIZERS` から名前で選びます。スクリプトの中で変わるのは `optimizer = OPTIMIZERS[name](model)` の1行だけです。どの最適化器も torch の closure の形（`loss = optimizer.step(closure)`）で回します。シードが同じなら、初期値とバッチの順番はどの最適化器でも同じです。
+依頼ごとに、LLM が編集プログラムを書き、試し、直します（[architecture.md](architecture.md) 8節）。未実施です。
+
+| 項目 | 設定 |
+|---|---|
+| モデル | GPT-2 XL（1.5B。ROME・MEMIT・RippleEdits の論文と同じ）を GPU サーバーで。手元での開発と試しは GPT-2 medium（ROME の公開設定がある。層8） |
+| 依頼 | CounterFact のレコードの書き換えの指定を文章にしたもの。例：「"The Eiffel Tower is located in" に、Paris ではなく Rome と答えるようにする。ほかの事実は変えない」 |
+| LLM に見せないもの | CounterFact の言い換え・近くの事実・主語の性質・生成用のプロンプトと、RippleEdits の質問。評価にだけ使う |
+| 試し | 1件の依頼につき決めた回数まで。報告に入るのは、コンパイルの診断と、LLM が自分で選んだプロンプトへの編集後のモデルの答え |
+| 機能の追加 | 書き換えのプロンプトと言い換えで、新しい目的語が元の目的語より確からしいか（ES・PS）。貪欲な生成で新しい目的語が出るか。RippleEdits の主語の別名（SA） |
+| 保存 | 近くの事実（NS）、主語のほかの性質、一般の文章（wikitext）での損失の変化。RippleEdits の保存（PV）と関係の特異性（RS） |
+| 未見の組み合わせ | RippleEdits の論理的な一般化（LG）と合成（CI・CII） |
+| 合成 | 複数件を順に加えたとき、前の編集とそれぞれの保存が保たれるか |
+| 比較 | ROME・MEMIT・AlphaEdit のプリセット（3節）を、同じ件、同じ評価で。RippleEdits の論文にある GPT-2 XL の ROME・MEMIT・MEND の数値も参考にする |
+| LLM | Haiku 5.5 から。少数の件で費用を測ってから見積もる |
+
+RippleEdits の測り方は論文に合わせます。編集が効いた件と、編集前のモデルが前提の事実に答えられた質問だけを使い、20トークンまでの生成に正解（またはその別名）が現れたら正解とします。論文の GPT-2 XL では、ROME の6基準の平均は部分集合（Recent・Random・Popular）によって46〜58%です。
+
+## 3. 既存の編集手法（CounterFact）
+
+| 項目 | 設定 |
+|---|---|
+| 手法 | `weightir.presets` の rome・emmet・memit・alphaedit。設定は `presets.HPARAMS`（gpt2-xl、gpt-j-6b、llama-3-8b。gpt2-medium は ROME だけ） |
+| データ | CounterFact（`--dataset counterfact`）、バッチ編集には multi_counterfact |
+| 統計量 | 入力の2次モーメント C は wikitext-103 の1万記事から推定し、`data/stats/` にキャッシュ |
+| 指標 | ROME の ES・PS・NS（確率の比較）と EM・PM・NM（確率の差）、S = ES・PS・NS の調和平均、MEMIT の argmax 正答率。いずれも teacher forcing で測る |
+| 結果 | `data/runs/editing/presets/` |
+
+```sh
+.venv/bin/python experiments/editing/presets.py --model gpt2-medium --method rome --dataset counterfact --size 50
+.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method rome --dataset counterfact --size 100
+.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method memit --dataset multi_counterfact --size 1000 --batch 1000
+```
+
+小さなランダムのモデルで、各手法の閉形式と一致することはテストしました。実モデルでは、GPT-2 medium の ROME を CounterFact の先頭50件で動かしました（2026-10-23、Mac の MPS）。値は ×100 です。
+
+| | S | ES | PS | NS | EM | PM | NM |
+|---|---|---|---|---|---|---|---|
+| GPT-2 medium、編集前 | 27.2 | 18.0 | 24.0 | 75.6 | −4.8 | −4.1 | 5.7 |
+| GPT-2 medium、ROME | 86.4 | 100.0 | 96.0 | 70.0 | 85.7 | 48.7 | 4.5 |
+| （参考）ROME の論文の GPT-2 XL、編集前 | 30.5 | 22.2 | 24.7 | 78.1 | −4.8 | −5.0 | 5.0 |
+| （参考）ROME の論文の GPT-2 XL、ROME | 89.2 | 100.0 | 96.4 | 75.4 | 97.9 | 62.7 | 4.2 |
+
+論文の値は7,500件の平均で、モデルの大きさも違いますが、同じ傾向です。層8の C の計算に28分、編集は1件約5秒かかりました。GPT-2 XL での実行と、MEMIT・EMMET・AlphaEdit の実モデルでの実行はまだです。GPU サーバーで行います。
+
+## 4. 内側の道具：学習
+
+毎ステップの重みの変化を `wir.edit` の閉形式の解だけで作る学習です（[architecture.md](architecture.md) 9節）。1回の閉形式で実現できない編集のための道具なので、ここではまず、ネットワークをはじめから学習させられるかを確かめています。
+
+### 4.1 共通の設定
+
+最適化器は [experiments/optimizers.py](../experiments/optimizers.py) の `OPTIMIZERS` から名前で選びます。スクリプトの中で変わるのは `optimizer = OPTIMIZERS[name](model)` の1行だけです。どの最適化器も torch の closure の形（`loss = optimizer.step(closure)`）で回します。シードが同じなら、初期値とバッチの順番はどの最適化器でも同じです。
 
 | 名前 | 中身 | 設定 |
 |---|---|---|
@@ -31,7 +81,7 @@
 - LLMを使う条件には `ANTHROPIC_API_KEY` が要ります。`.env` に置き、`uv run --env-file .env python ...` で実行します。`.env` は git で追跡しません。
 - GPU サーバーでは、CLAUDE.md の指示どおり `CUDA_VISIBLE_DEVICES=2,3 taskset -c 16-31,48-63` を付けて実行します。
 
-## 3. 分類
+### 4.2 分類
 
 | 項目 | 設定 |
 |---|---|
@@ -50,7 +100,7 @@ uv run --env-file .env python experiments/search.py --task mnist --method llm --
 .venv/bin/python experiments/search.py --task mnist --method adam-lr --trials 20
 ```
 
-## 4. 強化学習（CartPole）
+### 4.3 強化学習（CartPole）
 
 | 項目 | 設定 |
 |---|---|
@@ -69,7 +119,7 @@ uv run --env-file .env python experiments/search.py --task mnist --method llm --
 uv run --env-file .env python experiments/search.py --task cartpole --method llm --trials 20
 ```
 
-## 5. 結果（2026-10-23 時点）
+## 5. 結果：内側の道具（2026-10-23 時点）
 
 `agent-haiku-5-5` は、Haiku 5.5 が試行用のシード100で20回試して選んだプログラムで、下の数値はそれを評価用のシードで学習させたものです。データ拡張は禁止しています。`adam-tuned` は、学習率を同じ20回で選んだ Adam です。
 
@@ -108,11 +158,12 @@ uv run --env-file .env python experiments/search.py --task cartpole --method llm
 
 ### 何が分かったか
 
-- 重みの編集だけで学習させるプログラムを、Haiku 5.5 が20回の試行（費用は3課題で $0.06）で改善できました。試行用のシードで選んだ改善は、評価用のシードでも保たれています。
+- 重みの編集の繰り返しだけで、普通の最適化器と同じようにネットワークを学習できます。編集で学習する方法は、Adam のおよそ半分のステップで目標の精度に届きます。ただし1ステップが重いので、この小さなモデルを CPU で回す限り、時間では Adam に勝てません。
+- その手順を、Haiku 5.5 が20回の試行（費用は3課題で $0.06）で改善できました。試行用のシードで選んだ改善は、評価用のシードでも保たれています。
   - MNIST：学習率を探した Adam より0.47ポイント高く、`wir-cov` と同じ水準
   - Fashion-MNIST：全条件で最も高い
   - CartPole：解けるのが全条件で最も早い
-- 編集で学習する方法は、Adam のおよそ半分のステップで目標の精度に届きます。ただし1ステップが重いので、この小さなモデルを CPU で回す限り、時間では Adam に勝てません。
+- LLM が変えたのは主に歩幅の決め方で、言語ならではの機能（厳密な写像、部分空間の保存、予算）はほとんど使われませんでした。精度の小さな差では、重みの上に言語を置く狙いを示せないので、主役を事実の編集（2節）に移しました（[architecture.md](architecture.md) 10節）。
 
 ### LLM が書いたもの
 
@@ -153,26 +204,9 @@ uv run --env-file .env python experiments/search.py --task cartpole --method llm
 - 探索1回の時間は、ほぼ試行の学習の時間です（分類で20〜30分、CartPole で10分ほど）。
 - 探索は1時間ほどかかり、その間にネットワークが切れることがあります。呼び出しはストリーミングにせず、接続の失敗・時間切れ・サーバーの混雑のときは、SDK に応答の受け取りまで含めて最大60回（約10分）送り直させます。
 
-## 7. 知識編集（CounterFact）
+## 7. まだやっていない実験
 
-| 項目 | 設定 |
-|---|---|
-| 手法 | `weightir.presets` の rome・emmet・memit・alphaedit。設定は `presets.HPARAMS`（gpt2-xl、gpt-j-6b、llama-3-8b） |
-| データ | CounterFact（`--dataset counterfact`）、バッチ編集には multi_counterfact |
-| 統計量 | 入力の2次モーメント C は wikitext-103 の1万記事から推定し、`data/stats/` にキャッシュ |
-| 指標 | ROME の ES・PS・NS（確率の比較）と EM・PM・NM（確率の差）、S = ES・PS・NS の調和平均、MEMIT の argmax 正答率。いずれも teacher forcing で測る |
-| 結果 | `data/runs/editing/presets/` |
-
-```sh
-.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method rome --dataset counterfact --size 100
-.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method memit --dataset multi_counterfact --size 1000 --batch 1000
-```
-
-小さなランダムのモデルで、各手法の閉形式と一致することはテストしました。実際のモデルでの実行（元の論文の数値に近いかどうか）はまだです。GPU サーバーと、モデル（gpt2-xl で約6GB）のダウンロードが要ります。
-
-## 8. まだやっていない実験
-
-**主実験：同じバックエンドでの言語の比較。** 知識編集などの課題について、LLMが編集を書く条件を、同じ weightir のソルバの上で比べます。
+**主実験：同じバックエンドでの言語の比較。** 事実の編集（2節）などの課題について、LLMが編集を書く条件を、同じ weightir のソルバの上で比べます。
 
 1. LLM＋素の Python（型や検査なし、同じ数値関数）
 2. LLM＋JSON の仕様
@@ -188,11 +222,11 @@ LLMのトークン、コンパイルと評価の回数、計算時間を予算�
 |---|---|---|---|
 | T0 | 合成した線形問題 | ソルバと合成則が、独立に解いた KKT 系と一致するか | テストとして実施（`tests/test_solve.py`） |
 | T1 | Tracr のコンパイル済みモデル、InterpBench | 正解の部分空間が分かる環境で、プログラムが正しい部分空間に当たるか | 未着手 |
-| T2 | 小型LLM（GPT-2 XL など）での事実の編集（CounterFact、zsRE） | プリセットが元の実装と同じ数値になるか | 実装済み、未実行（7節） |
-| T3 | RippleEdits、MQuAKE、汎用能力の評価、逐次編集（〜1万件）、圧縮との合成 | 層についての保証が、モデル全体でどこまで効くか | 未着手 |
-| T4 | 制約つきの学習・ファインチューニング | `Rule(preserve=...)` や LLM のプログラムの保存が、普通の最適化器に比べて元の能力を守るか | 制約なしの学習（3〜5節）だけ実施 |
+| T2 | GPT-2 での事実の編集（CounterFact、RippleEdits） | 依頼から書いた編集プログラムが、4つの基準でプリセットより良いか。プリセットが元の論文に近い数値になるか | 未着手（2〜3節） |
+| T3 | MQuAKE、汎用能力の評価、逐次編集（〜1万件）、圧縮との合成 | 層についての保証が、モデル全体でどこまで効くか。MQuAKE の論文は GPT-J と Vicuna-7B を使い、編集後の多段の質問の正答率が大きく落ちた（GPT-J の MEMIT で40.5%→7.0%）。同じ大きさのモデルを GPU サーバーで使う | 未着手 |
+| T4 | 制約つきの学習・ファインチューニング | `Rule(preserve=...)` や LLM のプログラムの保存が、普通の最適化器に比べて元の能力を守るか | 制約なしの学習（4〜5節）だけ実施 |
 
 **評価の注意**
 
-- 事実の編集は、teacher forcing ではなく実際の生成でも測ります。評価方法を見直すと、成功率が報告値の96.8%から38.5%に下がった例があります（Mirage of Model Editing）。7節の指標はまだ teacher forcing だけです。
+- 事実の編集は、teacher forcing ではなく実際の生成でも測ります。評価方法を見直すと、成功率が報告値の96.8%から38.5%に下がった例があります（Mirage of Model Editing）。3節の指標はまだ teacher forcing だけです。2節では生成でも測ります。
 - エージェントが触れられない保留テストセットを使います。PostTrainBench では、エージェントがテストデータで学習してしまいました。

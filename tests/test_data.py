@@ -95,6 +95,7 @@ def same(a: dict, b: dict) -> bool:
 @pytest.mark.parametrize("sequential", [False, True])
 def test_presets_experiment_matches_a_replay(datadir, monkeypatch, sequential):
     monkeypatch.setattr(torch.cuda, "is_available", lambda: False)  # main's Model.load picks CPU, like the replay
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
     summary = experiment.main("tiny-llama", "alphaedit", "counterfact", size=2, sequential=sequential)
     name = f"tiny-llama_alphaedit_counterfact_b1{'_seq' if sequential else ''}.jsonl"
     rows = [json.loads(line) for line in (datadir / "runs" / "editing" / "presets" / name).read_text().splitlines()]

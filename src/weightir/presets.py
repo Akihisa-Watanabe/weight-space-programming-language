@@ -33,6 +33,12 @@ HPARAMS = {
         "alphaedit": dict(layers=[13, 14, 15, 16, 17], tau=2e-2, l2=10.0, length_params=_MEMIT_PREFIXES, opt=dict(
             steps=20, lr=0.5, weight_decay=0.5, kl_factor=0.0625, clamp_norm_factor=0.75)),
     },
+    "gpt2-medium": {  # ROME's config, for development on small machines; MEMIT, EMMET and AlphaEdit have none
+        "model": "openai-community/gpt2-medium",
+        "site": "transformer.h.{}.mlp.c_proj",
+        "rome": dict(layers=[8], mom2_adjustment=True, length_params=_ROME_PREFIXES, opt=dict(
+            steps=20, lr=0.5, weight_decay=0.5, kl_factor=0.0625, clamp_norm_factor=3.0)),
+    },
     "gpt-j-6b": {
         "model": "EleutherAI/gpt-j-6b",
         "site": "transformer.h.{}.mlp.fc_out",

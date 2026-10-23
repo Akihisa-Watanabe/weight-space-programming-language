@@ -53,12 +53,14 @@ class Model:
     @classmethod
     def load(cls, name: str, *, cache_dir: str = "data/hf", dtype=torch.float32, device: str | None = None) -> Model:
         """Load in ``dtype`` (float32 by default, whatever the checkpoint stores), on ``device`` (CUDA if available,
-        else CPU), in eval mode. A tokenizer without a pad token pads with EOS; padding side is set per call."""
+        else Apple's MPS, else CPU), in eval mode. A tokenizer without a pad token pads with EOS; padding side is set
+        per call."""
         tok = AutoTokenizer.from_pretrained(name, cache_dir=cache_dir)
         if tok.pad_token is None:
             tok.pad_token = tok.eos_token
         hf = AutoModelForCausalLM.from_pretrained(name, cache_dir=cache_dir, dtype=dtype)
-        device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        device = device or ("cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available()
+                            else "cpu")
         return cls(hf.to(device).eval(), tok, name)
 
     def _tied(self, weight: torch.nn.Parameter) -> bool:

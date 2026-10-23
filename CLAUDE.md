@@ -2,9 +2,9 @@
 
 ## Overview
 
-This is the repository for the blog **XXX**
+This is the repository for the blog **Scaling Neural Networks with Agentic Optimization**
 
-The research: instead of having an LLM output weight values, have it write a **typed weight-edit program** in a DSL embedded in Python (working name WeightIR). A compiler turns the program into a constrained optimization problem on one weight matrix, solves it (in closed form where possible), re-checks the constraints on the original data, and returns the weight change ΔW. The core problem (without a C, the change is measured by ‖ΔW‖_F²):
+The research: let a user say what a model should do, and have an LLM write a **typed weight-edit program** that implements it inside the network, in a DSL embedded in Python (working name WeightIR). A program says which layer (site), which inputs (keys) should map to which outputs (values), what must not change (the preserved subspace, earlier edits), within what budget, and how several edits combine. A compiler turns each edit into a constrained optimization problem on one weight matrix, solves it (in closed form where possible), re-checks the constraints on the original data, and returns the weight change ΔW, or refuses with a reason. The core problem (without a C, the change is measured by ‖ΔW‖_F²):
 
 ```text
 minimize    tr(ΔW C ΔWᵀ)       size of the change, measured by the second moment C of the site's inputs
@@ -13,11 +13,13 @@ subject to  (W + ΔW) K = V     keys K map to values V
 budget      rank(ΔW) ≤ r, ‖ΔW‖ ≤ B
 ```
 
-The LLM decides the site (layer and matrix), keys, values, and preserved subspace; the compiler computes the numbers. ROME, MEMIT, EMMET, and AlphaEdit are presets of this problem or of its soft-constraint form. Training uses the same edits: the LLM writes a program `step(ctx)` that `ProgramOptimizer` runs after every backward pass and that changes weights only through `wir.edit`, so every weight change is an edit the compiler solved; like a coding agent, the LLM improves the program over trials, each a fresh training run whose validation metrics (never test numbers) come back as its report (`agentic.loop`, `experiments/search.py`); this is the "agentic optimization" in the repository name. `weightir.train.Rule` compiles the same constraints into fixed update rules, for training without the LLM.
+The LLM decides the site, keys, values, and preserved subspace; the compiler computes the numbers. ROME, MEMIT, EMMET, and AlphaEdit are presets of this problem or of its soft-constraint form. Success is shown as function addition, preservation, composition, and handling of unseen combinations (paraphrases, facts implied by an edit, multi-hop questions), not as accuracy or training-speed gains. The first task is fact editing on GPT-2 (CounterFact, RippleEdits); develop on GPT-2 medium locally and run GPT-2 XL on the server.
 
-The main experiment asks whether, on the same numerical backend, an LLM writes better edits in this DSL than in plain Python or JSON. Layout: `src/weightir/` (DSL, compiler, solvers, checks, model I/O, presets, training rules; no LLM dependency), `src/agentic/` (Claude calls, `ProgramOptimizer`, the trial loop; the editing agent will go here), `evals/` (CounterFact metrics, corpora, cached statistics), `experiments/` (classification, RL, and editing scripts). See `docs/architecture.md`.
+Edits that one closed-form solve cannot realize (unknown target values, several layers, many examples) are realized by repeating edits under the same constraints. This is an inner tool, not the headline: `targets.optimize_values` finds values from a behaviour spec; `weightir.train.Rule` compiles the constraints into fixed update rules; `ProgramOptimizer` runs an LLM-written per-step edit program `step(ctx)` after every backward pass, and the trial loop (`agentic.loop`, `experiments/search.py`) lets the LLM improve that program over fresh training runs whose validation metrics (never test numbers) come back as reports. Classification and CartPole runs show the tool trains networks.
 
-Status: the DSL and compiler, the presets, the training rules, `ProgramOptimizer` with its trial loop, and the classification and CartPole experiments exist; the editing agent and the main comparison do not yet. Milestones are in `docs/architecture.md`, results in `docs/experiments.md`. LLM runs read `ANTHROPIC_API_KEY` from `.env` (git-ignored): `uv run --env-file .env python ...`.
+The main experiment asks whether, on the same numerical backend, an LLM writes better edits in this DSL than in plain Python or JSON. Layout: `src/weightir/` (DSL, compiler, solvers, checks, model I/O, presets, training rules; no LLM dependency), `src/agentic/` (Claude calls, the trial loop, `ProgramOptimizer`; the editing agent will go here), `evals/` (CounterFact metrics, corpora, cached statistics), `experiments/` (editing, classification, and RL scripts). See `docs/architecture.md`.
+
+Status: the DSL and compiler, the presets, the training rules, `ProgramOptimizer` with its trial loop, and the classification and CartPole experiments exist; ROME has run on GPT-2 medium (50 CounterFact records, in line with the paper's GPT-2 XL numbers). The editing agent, GPT-2 XL runs, the other presets on real models, and the main comparison do not exist yet. Milestones are in `docs/architecture.md`, results in `docs/experiments.md`. LLM runs read `ANTHROPIC_API_KEY` from `.env` (git-ignored): `uv run --env-file .env python ...`.
 
 ## Who the user is
 
