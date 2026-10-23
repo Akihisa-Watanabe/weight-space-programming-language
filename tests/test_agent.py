@@ -120,6 +120,24 @@ def test_refresh_sees_the_edited_weights_and_undo_takes_the_edit_back():
     assert opt.edit_stats["0"][0] == 0                                       # an undone edit is not counted
 
 
+def test_undo_restores_the_weights_exactly_even_in_bfloat16():
+    # 1.0 -> 1.003 rounds back to 1.0 in bfloat16; subtracting the change again used to give 0.99609375
+    lin = nn.Linear(1, 1, bias=False).to(torch.bfloat16)
+    with torch.no_grad():
+        lin.weight.fill_(1.0)
+    opt = ProgramOptimizer(lin, program=NOOP)
+    lin(torch.ones(1, 1, dtype=torch.bfloat16)).sum().backward()
+    opt.step()
+    K = wir.Keys(np.ones((1, 1)), "")
+    first = opt.ctx.apply(wir.edit("", map=wir.Exact(K, wir.Values(np.full((1, 1), 1.003), ""))))
+    second = opt.ctx.apply(wir.edit("", map=wir.Exact(K, wir.Values(np.full((1, 1), 1.5), ""))))
+    with pytest.raises(ValueError):
+        opt.ctx.undo(first)                      # the later patch of the same site has to go first
+    opt.ctx.undo(second)
+    opt.ctx.undo(first)
+    assert lin.weight.item() == 1.0 and opt.edit_stats[""][0] == 0
+
+
 def test_a_program_error_stops_training_with_its_traceback():
     net = nn.Sequential(nn.Linear(3, 2))
     opt = ProgramOptimizer(net, program="def step(ctx):\n    1 / 0\n")

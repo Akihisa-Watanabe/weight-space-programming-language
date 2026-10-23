@@ -146,7 +146,7 @@ m.apply(patch)                               # m.reset() で元に戻す
 2. **実現可能性の解析**（厳密な写像があるとき）：`Q = (I − UUᵀ)K` と `R = V − WK` を作り、`ΔW Q = R` に解があるかを判定します。必要なランク（= rank R）と、厳密な制約を満たす最小のノルムを、予算と比べます。
 3. **求解**：閉形式で解きます（6節）。
 4. **予算**：ノルムの予算を超えたら、罰則 η‖ΔW‖²（`kind="metric"` なら η·tr(ΔW M ΔWᵀ)）を足し、予算に収まる最小の η を二分探索します。ランクの予算は、ソフトな問題（厳密な写像なし）なら、目的関数の計量で最良のランク r の解に切り詰めます。
-5. **検査**：元の K・V・U で残差を測ります。float64 と、指定した dtype に丸めた後の両方で測り、予算も確認します。
+5. **検査**：元の K・V・U で残差を測り、予算も確認します。モデルを渡したときはそのパラメータの dtype（float32 や bfloat16）に丸めた後でも測り、厳密な写像がその dtype の有効桁の半分（相対 √eps）以内で成り立つことを確かめます。不合格なら `Infeasible("check")` を送出し、パッチは返しません。ソルバは候補を出すだけで、適用してよいかは検査が決めます。
 
 ## 6. ソルバと診断（weightir.solve、weightir.check）
 
@@ -184,20 +184,23 @@ H が正定値なら、解は一つで `ΔW = G H⁻¹ + Λ (H⁻¹A)ᵀ`、`Λ 
 | `Infeasible("norm")` | 解はすべて、ノルムが `min_norm` 以上 | 予算内の解はない |
 | `Infeasible("unresolved")` | 特異値が許容誤差の帯 (tol, 1e3·tol] にあり、判定できない | 判定を保留 |
 | `Infeasible("unsupported")` | この組み合わせは強制できない（目的関数が正定値でない、厳密な写像とソフト項とランクの予算の組など） | 未対応 |
+| `Infeasible("check")` | 計算した ΔW が検査に落ちた（元データで、または保存する dtype に丸めた後で、制約や予算を満たさない）。`details["check"]` に検査の数値 | 適用しない |
 | `SpecError` | 型・サイト・形の誤り | — |
 
 許容誤差は `tol = rtol·‖K‖₂`（rtol の既定は1e-10）で、Q の特異値のうち tol 以下は0とみなします。キーの大きさを基準にするので、保存する部分空間にほぼ含まれるキーも矛盾として検出できます。
 
-`check` は辞書を返します：`map_residual`（厳密なキーでの相対残差の最大）、`soft_map_residual`、`preserve_residual`（‖ΔW U‖ / ‖ΔW‖）、`preserve_data_change`（推定した部分空間の元データでの出力の相対変化）、`soft_preserve_penalty`、`fro`、`rank`、`metric`、`budgets_ok`、`ok`。dtype を指定すると、丸めた後の `map_residual_<dtype>` と `preserve_change_<dtype>` も加えます。`ok` が False でも例外にはしません。
+`check` は辞書を返します：`map_residual`（厳密なキーでの相対残差の最大）、`soft_map_residual`、`preserve_residual`（‖ΔW U‖ / ‖ΔW‖）、`preserve_data_change`（推定した部分空間の元データでの出力の相対変化）、`soft_preserve_penalty`、`fro`、`rank`、`metric`、`budgets_ok`、`ok`。dtype を指定すると、丸めた後の `map_residual_<dtype>` と `preserve_change_<dtype>` も加えます。`compile` は `ok` が False の変化を返さないので、`Model.apply` にも `ProgramOptimizer` にも、検査に落ちたパッチは渡りません。
+
+計量があるときの厳密な制約は、H = L Lᵀ で白色化した座標で解きます（Y = ΔW L とすると、Y = G L⁻ᵀ + (B − G H⁻¹ A)(L⁻¹A)⁺）。Aᵀ H⁻¹ A の擬似逆行列を使うと、キーの特異値が2乗されて小さな方向が許容誤差の下に落ち、実現可能と判定した編集を解き損ねるためです（ほぼ平行な2つのキーで、2つ目の出力が [2, 1] ではなく [2, 0.5] になった）。
 
 「不可能と証明した」と「この方法では判定できない」を分けるのは、出力レベルの修復が ReLU の1層だけでも NP 困難で、実用的な手法の多くが不完全だからです（PRDNN、APRNN、PREPARED）。
 
 ## 7. 合成
 
-| 演算 | 意味 | 成り立つ法則（単一サイト・厳密制約・実現可能なとき） |
+| 演算 | 意味 | 成り立つ法則（単一サイト・厳密制約・実現可能で、2つの編集が同じ計量を最小化するとき） |
 |---|---|---|
 | `joint(A, B)` | 制約をまとめ、一つの問題として解く | — |
-| `then(model, A, build_B)` | A を適用し、編集後のモデルを `build_B` に渡して B を組み立てて解く。同じサイトなら、A の厳密なキーを `Exact(span(K_A))` として保存に加える（`keep_previous=True`、既定） | `then(A, B) = joint(A, B)`（テスト済み） |
+| `then(model, A, build_B)` | A を適用し、編集後のモデルを `build_B` に渡して B を組み立てて解く。同じサイトなら、A の厳密なキーを `Exact(span(K_A))` として保存に加え、A の保存条件（厳密な部分空間とソフトな罰則）も引き継ぐ（`keep_previous=True`、既定） | `then(A, B) = joint(A, B)`（テスト済み）。ソフト項がある場合や計量が違う場合は、一般に成り立たない |
 | `then(..., keep_previous=False)` | A の結果を保存しない | 一般に順序に依存する |
 | `merge`（作っていない） | 同じ基準から作った2つのパッチの和 | 両方の仕様を満たす ⇔ `ΔW_B K_A = 0` かつ `ΔW_A K_B = 0`。このとき `joint(A, B)` と一致 |
 
@@ -233,6 +236,7 @@ for x, y in data:
 
 - **サイト**：学習する Linear と Conv1D の層（他のパラメータと共有していないもの）。バイアスは重みと一緒に `[W | b]` として編集し、キーの最後の行を1にします。それ以外のパラメータ（正規化層、埋め込み、畳み込みの核）は学習せず、警告で名前を出します。
 - **毎ステップ**：`step(closure)` は closure（前向きと逆向きの計算）を呼び、前向き計算のフックが、層の入力・出力・出力に対する勾配を記録します。続いてプログラムの `step(ctx)` を呼びます。プログラムは `ctx.apply(wir.edit(...))` でだけ重みを変えます。何も適用しなければ、重みは変わりません。
+- **検査**：各編集は、その層の重みの dtype に丸めた後も含めて検査し（`compile(edit, W, dtype=...)`）、不合格なら `Infeasible("check")` を送出して適用しません。
 - **残すもの**：プログラムが `print` した内容の最後の部分（`output`）と、層ごとの編集の回数・`‖ΔW‖_F` の合計・写像の残差の合計（`edit_stats`、取り消した編集は数えない）。
 - **エラー**：プログラムの例外は `ProgramError`（ステップ番号と、プログラム自身のフレームだけのトレースバック）として送出し、学習を止めます。`deadline`（試行の時間の上限）を渡すと、その時刻にプログラムの途中でも止めて、同じく `ProgramError` にします。止める合図は `Exception` ではないので、プログラムの `except Exception` では握りつぶせません。
 
@@ -247,7 +251,7 @@ for x, y in data:
 | `ctx.values(site, step)` | `outputs − step·N·output_grads`。損失がバッチの平均なら、各例の出力を自分の損失の勾配に逆らって動かしたもの |
 | `ctx.covariance(site, damping=1.0)` | 入力の2次モーメントの移動平均（減衰0.95）に `damping·mean(diag)·I` を足したもの |
 | `ctx.weight(site)`、`ctx.apply(edit)` | 今の `[W \| b]`、編集を解いてすぐ書き込み、`Patch` を返す |
-| `ctx.undo(patch)` | `ctx.apply` が返した編集を取り消す |
+| `ctx.undo(patch)` | そのステップでその層に最後に適用した編集を、適用前に控えた重みとバイアスに戻して取り消す（差分を引くのではないので、低精度の丸めでもずれない） |
 | `ctx.refresh()` | 今の重みで、このステップのバッチの前向きと逆向きの計算をやり直し、キー・出力・勾配を新しくして損失を返す |
 | `ctx.state` | ステップをまたいで中身が残る辞書 |
 
@@ -335,7 +339,8 @@ LLM に更新則ではなく編集を書かせるのは、「LLMは重みを操�
 | 計量を明示し、C計量を勧める | 検算：‖ΔW‖_F の解は座標に依存し、C計量は依存しない。Park et al.（ユークリッド内積は自明な選択ではない）、Tran et al.（注意ヘッドの GL ゲージ） |
 | ソルバと検査を分け、`Infeasible` で主張の強さを分ける | PRDNN・APRNN・PREPARED（不完全な手法）、Cordeiro et al.（実数上の証明が浮動小数点で破れる） |
 | 保存する dtype に丸めた後も測る | Cordeiro et al. |
-| `then` は既定で過去の編集を保存する | 検算（`then = joint`）、Knowledge in Superposition（順序に依存する干渉）、Composable Interventions |
+| `then` は既定で過去の編集のキーと保存条件を引き継ぐ | 検算（`then = joint`）、Knowledge in Superposition（順序に依存する干渉）、Composable Interventions。キーだけを引き継ぐと、最初の編集が保存した入力への応答が2回目で動いた |
+| 検査に落ちた変化は返さない（`Infeasible("check")`） | ソルバの数値的な失敗を検査が見つけても、止めずに適用していた |
 | `merge` は作らない | 検算（`merge = joint` ⇔ 干渉項がゼロ）、Knowledge in Superposition（キーは直交しない） |
 | 閾値つき部分空間は `exact=False` で区別する | AlphaEdit（論文は固有値1e-2、公開コードは平均した2次モーメントに対して2e-2）、その再現研究、BetaEdit、FisherEdit |
 | 学習では方向の変換の後で射影し、重み減衰も射影する | 8.2節の検算、Adam-NSCL、modular duality、InfLoRA |

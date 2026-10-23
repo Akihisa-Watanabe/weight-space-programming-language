@@ -134,7 +134,7 @@ def _spread(model, requests, sites, templates, opt: dict, layer_edit) -> list[Pa
         # share 1/(number of sites left), = 1/(L − l + 1) for contiguous layers, as in the reference code
         R = (Z - _residual(model, layers[-1], requests)) / (len(sites) - j)
         W = model.weight(site)
-        patches.append(compile(layer_edit(site, K, Values(W @ K.data + R, site)), W))
+        patches.append(compile(layer_edit(site, K, Values(W @ K.data + R, site)), model))
         model.apply(patches[-1])
     return patches
 

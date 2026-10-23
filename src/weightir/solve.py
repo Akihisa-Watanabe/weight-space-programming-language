@@ -10,7 +10,10 @@ with A = [K_exact, U], B = [V_exact − W K_exact, 0],
 
 The unique minimizer (H ≻ 0) is ΔW = G H⁻¹ + Λ (H⁻¹A)ᵀ with Λ = (B − G H⁻¹ A)(Aᵀ H⁻¹ A)⁺.
 Special cases: H = I, no soft terms → ΔW = B A⁺ (minimum Frobenius norm); H = C → the
-ROME / EMMET form B (Aᵀ C⁻¹ A)⁺ Aᵀ C⁻¹.
+ROME / EMMET form B (Aᵀ C⁻¹ A)⁺ Aᵀ C⁻¹. With exact constraints the minimizer is computed in
+whitened coordinates (H = L Lᵀ, Y = ΔW L): Y = G L⁻ᵀ + (B − G H⁻¹ A)(L⁻¹A)⁺, ΔW = Y L⁻¹. Taking
+the pseudoinverse of L⁻¹A rather than of Aᵀ H⁻¹ A keeps the singular values of the keys unsquared,
+so a key direction the feasibility check counts is not dropped by the solve.
 """
 from __future__ import annotations
 
@@ -36,7 +39,10 @@ class Infeasible(Exception):
           "rank"        proven: every exact solution has rank ≥ ``details["required_rank"]``;
           "norm"        proven: every solution has norm ≥ ``details["min_norm"]``;
           "unresolved"  a rank decision falls inside the numerical tolerance band;
-          "unsupported" this combination of budgets and constraints cannot be enforced.
+          "unsupported" this combination of budgets and constraints cannot be enforced;
+          "check"       raised by compile: the computed ΔW failed the re-check on the original data
+                        (or, for a stored dtype, after rounding to it); ``details["check"]`` has the
+                        residuals. No patch that fails the check is ever returned.
     """
 
     def __init__(self, kind: str, message: str, **details):
@@ -119,9 +125,10 @@ def _H(pb: Problem, eta: float) -> np.ndarray:
     return (H + H.T) / 2
 
 
-def _chol(H: np.ndarray):
+def _chol(H: np.ndarray) -> np.ndarray:
+    """The lower Cholesky factor L of H = L Lᵀ."""
     try:
-        return sla.cho_factor(H, lower=True, check_finite=False)
+        return sla.cholesky(H, lower=True, check_finite=False)
     except np.linalg.LinAlgError:
         raise Infeasible(
             "unsupported",
@@ -137,18 +144,16 @@ def _solve_with(pb: Problem, eta: float, rtol: float) -> np.ndarray:
             return np.zeros_like(pb.W)
         # minimum Frobenius norm: ΔW = B A⁺ (min-norm solution of Aᵀ ΔWᵀ = Bᵀ)
         return np.linalg.lstsq(A.T, B.T, rcond=rtol)[0].T
-    cf = _chol(_H(pb, eta))
-    base = None
-    if pb.Ks.shape[1]:
-        base = sla.cho_solve(cf, pb.Ks @ pb.Rs.T, check_finite=False).T        # G H⁻¹
-    if A.shape[1] == 0:
-        return base if base is not None else np.zeros_like(pb.W)
-    HiA = sla.cho_solve(cf, A, check_finite=False)
-    S = A.T @ HiA
-    rhs = B if base is None else B - base @ A
-    Lam = rhs @ sla.pinvh((S + S.T) / 2, rtol=rtol)
-    delta = Lam @ HiA.T
-    return delta if base is None else base + delta
+    L = _chol(_H(pb, eta))
+    if A.shape[1] == 0:                                                 # soft terms only: ΔW = G H⁻¹
+        if not pb.Ks.shape[1]:
+            return np.zeros_like(pb.W)
+        return sla.cho_solve((L, True), pb.Ks @ pb.Rs.T, check_finite=False).T
+    At = sla.solve_triangular(L, A, lower=True, check_finite=False)    # L⁻¹ A
+    Gt = (sla.solve_triangular(L, pb.Ks @ pb.Rs.T, lower=True, check_finite=False).T if pb.Ks.shape[1]
+          else np.zeros((pb.W.shape[0], pb.W.shape[1])))                # G L⁻ᵀ
+    Z = np.linalg.lstsq(At.T, (B - Gt @ At).T, rcond=rtol)[0].T        # (B − G H⁻¹ A)(L⁻¹A)⁺
+    return sla.solve_triangular(L, (Gt + Z).T, lower=True, trans="T", check_finite=False).T
 
 
 def _norm(pb: Problem, delta: np.ndarray) -> float:

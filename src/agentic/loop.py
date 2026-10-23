@@ -64,9 +64,10 @@ form for one weight matrix (a "site"). With W of shape (out, in), keys K (in, p)
 - Budgets: wir.Rank(r), wir.Norm(B, kind="fro" or "metric").
 - wir.edit(site, map=..., preserve=[...], minimize=Covariance or None, require=[...], ridge=0.0) returns an Edit;
   wir.joint(*edits) merges edits of one site into one problem.
-- wir.SpecError means wrong types, sites or shapes. wir.Infeasible means no ΔW meets the edit; its .kind is
-  "conflict", "rank", "norm", "unresolved" or "unsupported" and .details holds numbers. An error your program does
-  not catch stops the trial.
+- wir.SpecError means wrong types, sites or shapes. wir.Infeasible means the edit was not applied: its .kind is
+  "conflict", "rank", "norm" (proven impossible), "unresolved", "unsupported", or "check" (the computed change
+  failed the re-check on its data, or after rounding to the weights' dtype), and .details holds numbers. An error
+  your program does not catch stops the trial.
 
 ## ctx
 - ctx.sites: the editable layers that ran a training forward this step, in forward order.
@@ -84,7 +85,8 @@ form for one weight matrix (a "site"). With W of shape (out, in), keys K (in, p)
   plus damping·mean(diag)·I.
 - ctx.weight(site) -> array (out, in): the current [W | b].
 - ctx.apply(edit) -> Patch: solves the edit and writes it to the model at once; patch.check holds residuals and norms.
-- ctx.undo(patch): takes back a patch that ctx.apply returned.
+- ctx.undo(patch): takes back the last patch ctx.apply applied to that site in this step, restoring the weights
+  exactly.
 - ctx.refresh() -> float: runs the training loop's forward and backward pass on this step's batch again, at the
   current weights; afterwards keys, outputs, output_grads and values describe those weights. Returns the loss. Each
   call costs one forward and one backward pass.

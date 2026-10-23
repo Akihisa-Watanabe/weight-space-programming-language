@@ -12,9 +12,11 @@
 
 A program is Python source that defines ``step(ctx)``. step() runs the closure, then ``step(ctx)``, which changes
 weight matrices only through ``ctx.apply(wir.edit(...))``; weightir solves each edit in closed form. ``ctx.refresh()``
-runs the closure again so the program can measure an edit, and ``ctx.undo`` takes one back. What the program prints is
-kept (``output``), and so are per-site edit statistics (``edit_stats``). An exception in the program, or running past
-the deadline, is raised as ProgramError. The sites are those of weightir.model.sites; a layer's bias is edited
+runs the closure again so the program can measure an edit, and ``ctx.undo`` takes one back by restoring the weights
+it saved. Each edit is checked in the dtype its weights are stored in, and one that fails the check raises
+wir.Infeasible("check") instead of being applied. What the program prints is kept (``output``), and so are per-site
+edit statistics (``edit_stats``). An exception in the program, or running past the deadline, is raised as
+ProgramError. The sites are those of weightir.model.sites; a layer's bias is edited
 together with its weight as one matrix [W | b] whose keys end with a 1. Other parameters (norms, embeddings, conv
 kernels) are not trained, and a warning names them. The program runs in this process: it is code from a model you
 chose, not from an adversary. agentic.loop has an LLM write and improve programs.
@@ -35,6 +37,7 @@ import numpy as np
 import torch
 
 import weightir as wir
+from weightir.check import stored_dtype
 from weightir.model import add_to_weight, read_weight, sites
 
 PROGRAM_FILE = "<agent program>"
@@ -204,6 +207,8 @@ class ProgramOptimizer(torch.optim.Optimizer):
         super().__init__([p for p in model.parameters() if id(p) in trained], {})
 
         self._fn, self.deadline = load(program), deadline
+        self._dtype = {name: stored_dtype(m.weight.dtype) for name, (m, _, _) in self._sites.items()}
+        self._saved: dict[str, list] = {}  # site -> [(patch, weight before, bias before)] applied this step
         self._t = 0
         self._losses: list[float] = []
         self._metrics: dict[str, list[tuple[int, float]]] = {}
@@ -246,6 +251,7 @@ class ProgramOptimizer(torch.optim.Optimizer):
                 loss = closure()
         self._closure = closure
         self._t += 1
+        self._saved = {}
         self.ctx = Context(self, self._collect())
         try:
             with _alarm_at(self.deadline), contextlib.redirect_stdout(self._stdout):
@@ -304,11 +310,24 @@ class ProgramOptimizer(torch.optim.Optimizer):
     def _apply(self, edit: wir.Edit) -> wir.Patch:
         if edit.site not in self._sites:
             raise wir.SpecError(f"{edit.site!r} is not a site; sites: {list(self._sites)}")
-        patch = wir.compile(edit, self._weight(edit.site))
+        m, _, bias = self._sites[edit.site]
+        patch = wir.compile(edit, self._weight(edit.site), dtype=self._dtype[edit.site])
+        self._saved.setdefault(edit.site, []).append(
+            (patch, m.weight.detach().clone(), m.bias.detach().clone() if bias else None))
         self._add(edit.site, patch.delta)
         self._tally(patch, 1)
         return patch
 
     def _undo(self, patch: wir.Patch) -> None:
-        self._add(patch.site, -patch.delta)
+        """Restore the weights saved when ``patch`` was applied: exact, whatever rounding the apply did."""
+        saved = self._saved.get(patch.site, [])
+        if not saved or saved[-1][0] is not patch:
+            raise ValueError("ctx.undo takes back the last patch applied to a site in this step; take back the "
+                             "later patches of that site first")
+        _, weight, bias = saved.pop()
+        m = self._sites[patch.site][0]
+        with torch.no_grad():
+            m.weight.copy_(weight)
+            if bias is not None:
+                m.bias.copy_(bias)
         self._tally(patch, -1)

@@ -1,8 +1,10 @@
 """The solver is where a silent mistake corrupts every result, so each closed form is compared
 with an independent solve of the KKT system on vec(ΔW)."""
+import sys
+
 import numpy as np
-import torch
 import pytest
+import torch
 
 import weightir as wir
 
@@ -203,21 +205,24 @@ def test_norm_budget():
         assert info2["norm_penalty"] > 0
 
 
+class Toy:
+    """A model with one weight, for then()."""
+
+    def __init__(self, W):
+        self.W = W.copy()
+
+    def weight(self, site):
+        return self.W
+
+    def apply(self, patch):
+        self.W = self.W + patch.delta
+
+
 def test_then_with_keep_previous_equals_joint():
     rng = np.random.default_rng(6)
     W0, _, _, U, C = problem(rng)
     KA, VA = rng.standard_normal((12, 2)), rng.standard_normal((5, 2))
     KB, VB = rng.standard_normal((12, 2)), rng.standard_normal((5, 2))
-
-    class Toy:
-        def __init__(self, W):
-            self.W = W.copy()
-
-        def weight(self, site):
-            return self.W
-
-        def apply(self, patch):
-            self.W = self.W + patch.delta
 
     def make(K, V):
         return wir.edit(SITE, map=wir.Exact(keys(K), values(V)), preserve=wir.Exact(wir.Subspace(U, SITE)),
@@ -232,6 +237,51 @@ def test_then_with_keep_previous_equals_joint():
     toy = Toy(W0)
     wir.then(toy, make(KA, VA), lambda model: make(KB, VB), keep_previous=False)
     assert not np.allclose(toy.W @ KA, VA, atol=1e-6)
+
+
+def test_then_keeps_what_the_first_edit_preserved():
+    # the first edit maps A and keeps B; the second only maps C. Keeping only A's keys let the second move B.
+    rng = np.random.default_rng(13)
+    W0, _, _, _, C = problem(rng)
+    KA, VA, KB, KC, VC = (rng.standard_normal(shape) for shape in ((12, 2), (5, 2), (12, 3), (12, 2), (5, 2)))
+    metric = wir.Covariance(C, SITE)
+    first = wir.edit(SITE, map=wir.Exact(keys(KA), values(VA)), preserve=wir.Exact(wir.span(KB, SITE)), minimize=metric)
+    second = wir.edit(SITE, map=wir.Exact(keys(KC), values(VC)), minimize=metric)
+    toy = Toy(W0)
+    wir.then(toy, first, lambda model: second)
+    assert np.allclose(toy.W @ KB, W0 @ KB, atol=1e-9) and np.allclose(toy.W @ KA, VA, atol=1e-9)
+    assert np.allclose(toy.W, W0 + wir.compile(wir.joint(first, second), W0).delta, atol=1e-9)
+
+
+def test_exact_maps_hold_for_nearly_parallel_keys_under_a_metric():
+    # keys 1e-6 apart: the pseudoinverse of Aᵀ H⁻¹ A squares that gap to 1e-12, under the cut, and the second key
+    # came out as [2, 0.5] instead of [2, 1]
+    K, V = keys(np.array([[1.0, 1.0], [0.0, 1e-6]])), values(np.array([[2.0, 2.0], [0.0, 1.0]]))
+    metric = wir.Covariance(np.array([[1.0, 0.3], [0.3, 1.0]]), SITE)
+    p = wir.compile(wir.edit(SITE, map=wir.Exact(K, V), minimize=metric), np.zeros((2, 2)))
+    assert np.allclose(p.delta @ K.data, V.data, atol=1e-6)
+
+
+def test_compile_never_returns_a_change_that_fails_the_check(monkeypatch):
+    rng = np.random.default_rng(14)
+    W = rng.standard_normal((3, 4))
+    e = wir.edit(SITE, map=wir.Exact(keys(rng.standard_normal((4, 1))), values(rng.standard_normal((3, 1)))))
+    module = sys.modules["weightir.compile"]                   # weightir.compile is also the name of the function
+    monkeypatch.setattr(module, "solve", lambda e, W, rtol: (np.zeros_like(W), {}))  # a solver gone wrong
+    with pytest.raises(wir.Infeasible) as err:
+        wir.compile(e, W)
+    assert err.value.kind == "check" and not err.value.details["check"]["ok"]
+
+
+def test_a_change_that_rounding_to_the_stored_dtype_breaks_is_refused():
+    # outputs of 0 from weights of ±100: the 0.15 changes needed for 0.3 round away in bfloat16 (steps of 0.5),
+    # while float32 keeps them to about 3e-5, well within half its digits
+    W0 = np.array([[100.0, -100.0]])
+    e = wir.edit(SITE, map=wir.Exact(keys(np.ones((2, 1))), values(np.full((1, 1), 0.3))))
+    assert wir.compile(e, W0).check["ok"] and wir.compile(e, W0, dtype="float32").check["ok"]
+    with pytest.raises(wir.Infeasible) as err:
+        wir.compile(e, W0, dtype="bfloat16")
+    assert err.value.kind == "check"
 
 
 def test_spec_rejects_wrong_sites_and_spaces():
