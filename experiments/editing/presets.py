@@ -1,14 +1,18 @@
 # Adapted from github.com/kmeng01/memit (MIT License, Copyright (c) 2022 Kevin Meng): experiments/evaluate.py; and github.com/jianghoucheng/AlphaEdit (MIT License, Copyright (c) 2025 jianghc): experiments/evaluate.py
-"""Preset baselines on CounterFact: ROME, EMMET, MEMIT and AlphaEdit with the settings in weightir.presets.HPARAMS.
+"""Preset baselines on CounterFact and RippleEdits: ROME, EMMET, MEMIT and AlphaEdit with the settings in
+weightir.presets.HPARAMS.
 
     python experiments/editing/presets.py --model gpt2-xl --method memit --dataset multi_counterfact --size 1000 --batch 100
+    python experiments/editing/presets.py --model gpt2-xl --method rome --dataset rippleedits_popular --size 200
 
-Records start .. start + size - 1 are edited a batch at a time (ROME: one record per batch). By default every batch
-edits the unedited model and is undone once its records are scored (MEMIT's evaluate.py). With --sequential the edits
-accumulate, AlphaEdit also carries the Grams of earlier keys, and every record is scored after the last batch
-(AlphaEdit's sequential setting). "pre" is always the unedited model, and so are the context templates and second
-moments (evals.data caches them under data/stats). Each record appends one JSON line with
-evals.counterfact.evaluate's output before and after to --out; the summary of both is printed.
+Records start .. start + size - 1 are edited a batch at a time (ROME: one record per batch; RippleEdits examples, in
+evals.rippleedits.load's shuffled order, one at a time). By default every batch edits the unedited model and is
+undone once its records are scored (MEMIT's evaluate.py). With --sequential the edits accumulate, AlphaEdit also
+carries the Grams of earlier keys, and every record is scored after the last batch (AlphaEdit's sequential setting).
+"pre" is always the unedited model, and so are the context templates and second moments (evals.data caches them
+under data/stats). Each record appends one JSON line with the dataset's evaluate output (evals.counterfact or
+evals.rippleedits) before and after to --out; the summary is printed: of both for CounterFact, of the pair for
+RippleEdits.
 """
 import argparse
 import json
@@ -18,11 +22,13 @@ from pathlib import Path
 import weightir as wir
 from evals import counterfact as cf
 from evals import data
+from evals import rippleedits as re_
 from weightir import presets
 from weightir.model import Model
 from weightir.targets import Request
 
 METHODS = ("rome", "emmet", "memit", "alphaedit")
+DATASETS = (*sorted(cf.URLS), *(f"rippleedits_{s}" for s in re_.SUBSETS))
 
 
 def _edit(model, method: str, hp: dict, sites: list[str], Cs: dict | None, templates, requests, prev):
@@ -44,22 +50,30 @@ def _edit(model, method: str, hp: dict, sites: list[str], Cs: dict | None, templ
 
 def main(model: str, method: str, dataset: str, *, start: int = 0, size: int = 100, batch: int = 1,
          sequential: bool = False, out: str | None = None) -> dict:
-    """Run one baseline (``model`` is a presets.HPARAMS key); return the printed summary {"pre": ..., "post": ...}."""
+    """Run one baseline (``model`` is a presets.HPARAMS key); return the printed summary, {"pre": ..., "post": ...}
+    for CounterFact."""
     if method not in METHODS or method not in presets.HPARAMS[model]:
         raise ValueError(f"presets.HPARAMS has no {method} settings for {model}")
     if method == "rome" and batch != 1:
         raise ValueError("ROME edits one record at a time: use --batch 1")
     if batch > 1 and dataset != "multi_counterfact":
-        raise ValueError("counterfact holds conflicting records; batches need multi_counterfact, as in MEMIT")
+        raise ValueError(f"{dataset} holds conflicting records; batches need multi_counterfact, as in MEMIT")
+    ripple = dataset.startswith("rippleedits_")
     hp = presets.HPARAMS[model][method]
     m = Model.load(presets.HPARAMS[model]["model"])
     sites = [presets.HPARAMS[model]["site"].format(layer) for layer in hp["layers"]]
     templates = data.templates(m, hp["length_params"])
     Cs = None if method == "rome" and not hp["mom2_adjustment"] else {s: data.covariance(m, s) for s in sites}
-    records = cf.load(dataset, size=start + size)[start:]
+    if ripple:
+        records = re_.load(dataset.removeprefix("rippleedits_"))[start:start + size]
+        evaluate, fs, ids = re_.evaluate, [r["fact"] for r in records], [r["id"] for r in records]
+    else:
+        records = cf.load(dataset, size=start + size)[start:]
+        evaluate, fs = cf.evaluate, [cf.fields(r) for r in records]
+        ids = [f["case_id"] for f in fs]
     if not records:
         raise ValueError(f"{dataset} has no records from index {start} on")
-    pre = [cf.evaluate(m.hf, m.tok, r) for r in records]
+    pre = [evaluate(m.hf, m.tok, r) for r in records]
     post, info, prev = [None] * len(records), [None] * len(records), None
     out = Path(out or f"data/runs/editing/presets/{model}_{method}_{dataset}_b{batch}"
                       f"{'_seq' if sequential else ''}.jsonl")
@@ -71,32 +85,34 @@ def main(model: str, method: str, dataset: str, *, start: int = 0, size: int = 1
             for i in idx:
                 f.write(json.dumps({"model": model, "method": method, "dataset": dataset, "start": start,
                                     "size": len(records), "batch": batch, "sequential": sequential,
-                                    "case_id": records[i]["case_id"], **info[i], "pre": pre[i], "post": post[i]})
+                                    "case_id": ids[i], **info[i], "pre": pre[i], "post": post[i]})
                         + "\n")
 
     for b, s in enumerate(range(0, len(records), batch)):
         idx = range(s, min(s + batch, len(records)))
-        fs = [cf.fields(records[i]) for i in idx]
-        requests = [Request(f["prompt"], f["subject"], f["target_new"]) for f in fs]
+        requests = [Request(fs[i]["prompt"], fs[i]["subject"], fs[i]["target_new"]) for i in idx]
         t = time.time()
         patches, grams = _edit(m, method, hp, sites, Cs, templates, requests, prev)
         seconds = time.time() - t
         print(f"batch {b + 1}/{-(-len(records) // batch)}: {len(idx)} edits in {seconds:.1f} s", flush=True)
         for i in idx:
-            info[i] = {"batch_case_ids": [f["case_id"] for f in fs], "seconds": seconds,
+            info[i] = {"batch_case_ids": [ids[j] for j in idx], "seconds": seconds,
                        "checks": [p.check for p in patches]}
         if sequential:
             prev = grams
         else:
             for i in idx:
-                post[i] = cf.evaluate(m.hf, m.tok, records[i])
+                post[i] = evaluate(m.hf, m.tok, records[i])
             m.reset()
             write(idx)
     if sequential:
-        post = [cf.evaluate(m.hf, m.tok, r) for r in records]
+        post = [evaluate(m.hf, m.tok, r) for r in records]
         write(range(len(records)))
 
-    summary = {k: cf.summarize([cf.scores(x) for x in v]) for k, v in (("pre", pre), ("post", post))}
+    if ripple:
+        summary = re_.summarize([re_.scores(a, b) for a, b in zip(pre, post)])
+    else:
+        summary = {k: cf.summarize([cf.scores(x) for x in v]) for k, v in (("pre", pre), ("post", post))}
     print(json.dumps(summary, indent=1))
     return summary
 
@@ -105,7 +121,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Preset baselines (ROME, EMMET, MEMIT, AlphaEdit) on CounterFact.")
     p.add_argument("--model", required=True, choices=sorted(presets.HPARAMS))
     p.add_argument("--method", required=True, choices=METHODS)
-    p.add_argument("--dataset", required=True, choices=sorted(cf.URLS))
+    p.add_argument("--dataset", required=True, choices=DATASETS)
     p.add_argument("--start", type=int, default=0, help="index of the first record")
     p.add_argument("--size", type=int, default=100, help="number of records")
     p.add_argument("--batch", type=int, default=1, help="edits per batch (ROME: 1)")

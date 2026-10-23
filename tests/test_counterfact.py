@@ -62,6 +62,13 @@ def reference(model, tok, prompt, target):
     return nll, logits[len(p) - 1 : -1].argmax(-1).tolist() == ids[len(p) :]
 
 
+def one_continuation(model, tok, prompt):
+    """The 20-token greedy continuation of one unpadded prompt."""
+    ids = tok(prompt, return_tensors="pt")
+    out = model.generate(**ids, max_new_tokens=20, do_sample=False, pad_token_id=tok.eos_token_id)
+    return tok.decode(out[0, ids["input_ids"].shape[1]:], skip_special_tokens=True)
+
+
 def flatten(result, key):
     return [x[key] for g in GROUPS for x in result[g]]
 
@@ -79,6 +86,7 @@ def test_evaluate_matches_unpadded_chain_rule(name):
     prompts = [rr["prompt"].format(rr["subject"]), *RECORD["paraphrase_prompts"], *RECORD["neighborhood_prompts"]]
     with torch.no_grad():
         ref = {t: [reference(model, tok, p, t) for p in prompts] for t in (NEW, TRUE)}
+        conts = [one_continuation(model, tok, p) for p in prompts]
 
     for batch_size in (32, 5):  # all 26 sequences in one padded batch; batches that split a prompt's two sequences
         got = cf.evaluate(model, tok, record, batch_size=batch_size)
@@ -87,19 +95,24 @@ def test_evaluate_matches_unpadded_chain_rule(name):
         assert flatten(got, "nll_true") == pytest.approx([nll for nll, _ in ref[TRUE]], abs=1e-5)
         assert flatten(got, "argmax_new") == [hit for _, hit in ref[NEW]]
         assert flatten(got, "argmax_true") == [hit for _, hit in ref[TRUE]]
+        # left-padded batches of up to 5 or all 13 prompts continue as each prompt does alone
+        assert flatten(got, "text") == conts
+        assert flatten(got, "gen_true") == [TRUE in c for c in conts]
 
 
 def test_scores_follow_rome():
-    def entry(new, true, argmax_new=False, argmax_true=False):
-        return {"nll_new": new, "nll_true": true, "argmax_new": argmax_new, "argmax_true": argmax_true}
+    def entry(new, true, argmax_new=False, argmax_true=False, gen_new=False, gen_true=False):
+        return {"nll_new": new, "nll_true": true, "argmax_new": argmax_new, "argmax_true": argmax_true,
+                "gen_new": gen_new, "gen_true": gen_true}
 
     result = {
-        "rewrite": [entry(1.0, 2.0, argmax_new=True)],
-        # target_new should win: it loses the first prompt, and a tie fails
-        "paraphrase": [entry(1.0, 0.5, argmax_new=True), entry(3.0, 3.0, argmax_new=True)],
+        "rewrite": [entry(1.0, 2.0, argmax_new=True, gen_new=True)],
+        # target_new should win: it loses the first prompt, and a tie fails; a continuation naming both fails
+        "paraphrase": [entry(1.0, 0.5, argmax_new=True, gen_new=True),
+                       entry(3.0, 3.0, argmax_new=True, gen_new=True, gen_true=True)],
         # target_true should keep winning: it wins only the first prompt
-        "neighborhood": [entry(2.0, 1.0, argmax_true=True), entry(0.5, 3.0, argmax_true=True),
-                         entry(4.0, 4.0, argmax_new=True)],
+        "neighborhood": [entry(2.0, 1.0, argmax_true=True, gen_true=True), entry(0.5, 3.0, argmax_true=True),
+                         entry(4.0, 4.0, argmax_new=True, gen_new=True)],
     }
     s = cf.scores(result)
     e = math.exp
@@ -109,6 +122,8 @@ def test_scores_follow_rome():
     assert s["NM"] == pytest.approx((e(-1) - e(-2) + e(-3) - e(-0.5) + 0) / 3)  # mean of exp(-true) - exp(-new)
     # MEMIT: target_new's flag for rewrite and paraphrase prompts, target_true's for neighborhood prompts
     assert [s["rewrite_acc"], s["paraphrase_acc"], s["neighborhood_acc"]] == pytest.approx([1, 1, 2 / 3])
+    # generation: the right target named and the other not
+    assert [s["rewrite_gen"], s["paraphrase_gen"], s["neighborhood_gen"]] == pytest.approx([1, 1 / 2, 1 / 3])
 
 
 def test_summarize_takes_harmonic_mean_of_means():

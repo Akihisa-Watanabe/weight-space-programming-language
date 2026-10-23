@@ -1,13 +1,14 @@
 # Third-party notices
 
 Parts of this repository are adapted from the projects below. Each adapted file names its sources in its first line.
-All five projects use the MIT License; the license text follows the list.
+All six projects use the MIT License; the license text follows the list.
 
 | Project | Copyright | Adapted into |
 |---|---|---|
 | [ROME](https://github.com/kmeng01/rome) | Copyright (c) 2022 Kevin Meng | `src/weightir/nethook.py`, `stats.py`, `targets.py`, `presets.py`, `evals/counterfact.py` |
 | [MEMIT](https://github.com/kmeng01/memit) | Copyright (c) 2022 Kevin Meng | `src/weightir/targets.py`, `presets.py`, `evals/counterfact.py`, `experiments/editing/presets.py` |
 | [AlphaEdit](https://github.com/jianghoucheng/AlphaEdit) | Copyright (c) 2025 jianghc | `src/weightir/stats.py`, `presets.py`, `experiments/editing/presets.py` |
+| [RippleEdits](https://github.com/edenbiran/RippleEdits) | Copyright (c) 2023 Eden Biran | `evals/rippleedits.py` |
 | [Muon](https://github.com/KellerJordan/Muon) | Copyright (c) 2024 Keller Jordan | `src/weightir/train.py` |
 | [Adam-NSCL](https://github.com/ShipengWang/Adam-NSCL) | Copyright (c) 2021 Shipeng Wang | `src/weightir/train.py` |
 

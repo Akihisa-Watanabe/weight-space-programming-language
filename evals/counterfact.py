@@ -1,10 +1,14 @@
 # Adapted from kmeng01/rome (MIT License, Copyright (c) 2022 Kevin Meng): dsets/counterfact.py, experiments/py/eval_utils_counterfact.py, experiments/summarize.py; and kmeng01/memit (MIT License, Copyright (c) 2022 Kevin Meng): dsets/counterfact.py, experiments/py/eval_utils_counterfact.py.
-"""CounterFact records, ROME's probability metrics and MEMIT's argmax accuracy (no generation metrics).
+"""CounterFact records, ROME's probability metrics, MEMIT's argmax accuracy, and a greedy-generation check.
 
 Per case (``scores``), from the teacher-forced mean NLL per target token after each prompt:
     ES, PS   share of rewrite / paraphrase prompts after which target_new is more likely than target_true
     NS       share of neighborhood prompts after which target_true is still more likely than target_new
     EM, PM, NM  the matching mean gaps of exp(-NLL), i.e. of the geometric-mean per-token probability
+and from the greedy continuation of each prompt (20 tokens, evals.generation.greedy):
+    rewrite_gen, paraphrase_gen   share of prompts whose continuation contains target_new and not target_true
+    neighborhood_gen              share of prompts whose continuation contains target_true and not target_new
+(case-sensitive substrings, as RippleEdits checks answers; teacher forcing alone overstates edits, Yang et al. 2025).
 Over cases (``summarize``): the means and S = harmonic mean of ES, PS and NS. All values are fractions;
 the papers print them x100.
 """
@@ -15,11 +19,14 @@ import numpy as np
 import torch
 from scipy.stats import hmean
 
+from evals.generation import greedy
+
 URLS = {
     "counterfact": "https://rome.baulab.info/data/dsets/counterfact.json",
     "multi_counterfact": "https://memit.baulab.info/data/dsets/multi_counterfact.json",
 }
-KEYS = ("ES", "PS", "NS", "EM", "PM", "NM", "rewrite_acc", "paraphrase_acc", "neighborhood_acc")
+KEYS = ("ES", "PS", "NS", "EM", "PM", "NM", "rewrite_acc", "paraphrase_acc", "neighborhood_acc",
+        "rewrite_gen", "paraphrase_gen", "neighborhood_gen")
 
 
 def load(name: str = "counterfact", *, data_dir: str = "data/counterfact", size: int | None = None) -> list[dict]:
@@ -51,12 +58,15 @@ def fields(record: dict) -> dict:
 
 
 @torch.no_grad()
-def evaluate(hf_model, tok, record: dict, *, batch_size: int = 32) -> dict:
-    """Teacher-forced scores of " target_new" and " target_true" after every prompt of ``record``.
+def evaluate(hf_model, tok, record: dict, *, batch_size: int = 32, max_new_tokens: int = 20) -> dict:
+    """Teacher-forced scores of " target_new" and " target_true" after every prompt of ``record``, and the prompt's
+    greedy continuation.
 
     Returns {"rewrite": [1 entry], "paraphrase": [2], "neighborhood": [10]}, one entry per prompt:
       nll_new, nll_true        mean negative log-likelihood per target token (lower = more likely)
       argmax_new, argmax_true  the argmax at every target position is that target's token (MEMIT)
+      text                     greedy continuation of up to ``max_new_tokens`` tokens
+      gen_new, gen_true        that target occurs in text
     Each scored sequence is the prompt's tokens (with BOS if the tokenizer adds one) followed by the target's
     tokens, right-padded here, so the tokenizer's padding side and pad token play no part. ``batch_size``
     counts sequences per forward pass; a record has 26.
@@ -97,8 +107,10 @@ def evaluate(hf_model, tok, record: dict, *, batch_size: int = 32) -> dict:
             nll.append(-z.log_softmax(-1)[torch.arange(len(t)), y].mean().item())
             hit.append(bool((z.argmax(-1) == y).all()))
 
+    conts = greedy(hf_model, tok, prompts, max_new_tokens=max_new_tokens, batch_size=batch_size)
     entries = [
-        {"nll_new": nll[2 * k], "nll_true": nll[2 * k + 1], "argmax_new": hit[2 * k], "argmax_true": hit[2 * k + 1]}
+        {"nll_new": nll[2 * k], "nll_true": nll[2 * k + 1], "argmax_new": hit[2 * k], "argmax_true": hit[2 * k + 1],
+         "text": conts[k], "gen_new": f["target_new"] in conts[k], "gen_true": f["target_true"] in conts[k]}
         for k in range(len(prompts))
     ]
     out, k = {}, 0
@@ -109,7 +121,8 @@ def evaluate(hf_model, tok, record: dict, *, batch_size: int = 32) -> dict:
 
 
 def scores(result: dict) -> dict:
-    """Per-case ES, PS, NS, EM, PM, NM as in ROME's summarize.py, and MEMIT's argmax accuracy per prompt group.
+    """Per-case ES, PS, NS, EM, PM, NM as in ROME's summarize.py, MEMIT's argmax accuracy per prompt group, and the
+    share of continuations that name the right target and not the other.
 
     Rewrite and paraphrase prompts should prefer target_new; neighborhood prompts should keep preferring
     target_true. A tie counts as a failure.
@@ -121,6 +134,7 @@ def scores(result: dict) -> dict:
         out[s] = float(np.mean([x[f"nll_{good}"] < x[f"nll_{bad}"] for x in xs]))
         out[m] = float(np.mean([np.exp(-x[f"nll_{good}"]) - np.exp(-x[f"nll_{bad}"]) for x in xs]))
         out[f"{g}_acc"] = float(np.mean([x[f"argmax_{good}"] for x in xs]))
+        out[f"{g}_gen"] = float(np.mean([x[f"gen_{good}"] and not x[f"gen_{bad}"] for x in xs]))
     return out
 
 

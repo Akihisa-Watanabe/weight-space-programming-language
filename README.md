@@ -70,8 +70,9 @@ optimizer.observe(loss.item(), val_acc=...)   # 検証の成績などは、測�
 ## 実験
 
 ```sh
-# 知識編集（CounterFact でプリセットを評価）
+# 知識編集（CounterFact と RippleEdits でプリセットを評価）
 .venv/bin/python experiments/editing/presets.py --model gpt2-xl --method rome --dataset counterfact --size 100
+.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method rome --dataset rippleedits_popular --size 200
 # 内側の道具：分類（MNIST / Fashion-MNIST の MLP）
 .venv/bin/python experiments/classification/train.py --dataset mnist --optimizer wir-cov --epochs 3 --seed 0
 # 内側の道具：強化学習（CartPole-v1、価値関数をベースラインにした REINFORCE）
@@ -121,7 +122,7 @@ agentic_optimization/
 │   ├── llm.py         Claude の呼び出し
 │   ├── loop.py        試行ループ（LLM がプログラムを書き、試行の結果を見て直す）
 │   └── program.py     ProgramOptimizer（内側の道具：毎ステップの編集プログラムを動かす）
-├── evals/             CounterFact の指標、コーパスと統計量のキャッシュ
+├── evals/             CounterFact と RippleEdits の指標、貪欲生成、コーパスと統計量のキャッシュ
 ├── experiments/       事実の編集・分類・強化学習の実験スクリプト
 ├── tests/             テスト
 ├── docs/              設計、実験、関連研究
