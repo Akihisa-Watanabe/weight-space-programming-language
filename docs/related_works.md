@@ -4,7 +4,7 @@
 
 - 各項目の「PDF」は `third_party/papers/` の中を指します。PDFはgitで追跡していないので、別の環境では論文名のリンクから取得してください。一覧表は [third_party/papers/README.md](../third_party/papers/README.md) にあります。
 - 主要な論文は本文まで読んで確認しました。発表先は、予稿集・OpenReview・arXivのjournal-refで確認しています。2026年のプレプリントは査読前です。
-- 「→」の後は、この構想にとっての意味です。
+- 「→」の後は、この構想にとっての意味です。T0〜T4 は [experiments.md](experiments.md) のテストベッドの記号です。
 
 ## 0. 要約
 
@@ -18,16 +18,14 @@
 
 ### 見つからなかったもの（新規性の候補）
 
-1. 特定のチェックポイントの「ポート」に名前と由来を持たせ、上流の編集で前提が古くなったことを検出する型システム
-2. joint・then・merge の合成則と、それが壊れる条件（多層、ソフト制約、圧縮）を明示した、編集の代数
-3. 保証を「代数的・数値的・統計的・行動評価」に分けたマニフェスト
-4. 同じ数値計算部分を使ったとき、LLMが素のPythonより型つきの言語で良い編集を書けるかの実証
+1. joint・then・merge の合成則と、それが壊れる条件（多層、ソフト制約、圧縮）を明示した、編集の代数
+2. 同じ数値計算部分を使ったとき、LLMが素のPythonより型つきの言語で良い編集を書けるかの実証
 
 ### 既存の閉形式編集は、同じ仕様の仲間
 
 | 手法 | 編集 | 保存 | 最小化する量 |
 |---|---|---|---|
-| 構想の v0 | 厳密 | 部分空間を厳密に | ‖ΔW‖_F |
+| WeightIR の編集 | 厳密またはソフト | 部分空間を厳密に、または C でソフトに | tr(ΔW M ΔWᵀ)（M = C、または M = I で ‖ΔW‖_F²） |
 | ROME | 厳密・1件 | 汎用テキストのキー共分散Cでソフトに | E‖ΔW k‖² = tr(ΔW C ΔWᵀ) |
 | MEMIT | ソフト（最小二乗） | λC でソフトに | ‖ΔWK − R‖² + λ tr(ΔW C ΔWᵀ) |
 | EMMET | 厳密・バッチ | Cでソフトに | tr(ΔW C ΔWᵀ)（実装では αI を足すので厳密性が緩む） |
@@ -50,7 +48,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[Rewriting a Deep Generative Model](https://arxiv.org/abs/2007.15646)**（Bau et al., ECCV 2020）[PDF](../third_party/papers/editing/bau2020_rewriting.pdf)
   層を線形の連想記憶とみなし、`Wk* = v*` を満たしつつ既存のキーと値の対応をなるべく崩さないランク1更新を解く。ユーザーの「コピー／ペースト／文脈」の操作を、値・キー・更新部分空間（白色化したPCA）に変換する。
-  → 構想の流れ（操作 → K・V・S → 閉形式）がすでにある。ただし型も由来もなく、対象は1層だけ。
+  → 構想の流れ（操作 → K・V・S → 閉形式）がすでにある。ただし型も制約の検査もなく、対象は1層だけ。
 
 - **[MEND: Fast Model Editing at Scale](https://arxiv.org/abs/2110.11309)**（Mitchell et al., ICLR 2022）[PDF](../third_party/papers/editing/mitchell2022_mend.pdf)
   ランク1に分解した勾配を、ハイパーネットワークで編集用の差分に変換する。100億パラメータ超まで使える。著者自身、ランダムな負例では難しさが足りず、編集が広がりすぎると述べている。
@@ -58,11 +56,11 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[ROME: Locating and Editing Factual Associations in GPT](https://arxiv.org/abs/2202.05262)**（Meng et al., NeurIPS 2022）[PDF](../third_party/papers/editing/meng2022_rome.pdf)
   `ΔW = (v* − Wk*)(C⁻¹k*)ᵀ / (k*ᵀC⁻¹k*)`。C は Wikipedia の10万サンプルから推定したキーの（中心化しない）2次モーメント。k* は主語の最後のトークンでの平均キー、v* は勾配法で最適化する。
-  → `exact_metric` ソルバで U が空、1件の場合にあたる。C は宣言した保存集合ではなく、汎用テキストの統計。
+  → `Exact(K, V)` が1件で `minimize=C`、保存なしの編集にあたる（`presets.rome`）。C は宣言した保存集合ではなく、汎用テキストの統計。
 
 - **[MEMIT: Mass-Editing Memory in a Transformer](https://arxiv.org/abs/2210.07229)**（Meng et al., ICLR 2023）[PDF](../third_party/papers/editing/meng2023_memit.pdf)
   `Δ = R K₁ᵀ(C₀ + K₁K₁ᵀ)⁻¹`、`C₀ = λE[kkᵀ]`。残差を複数の層に分け、層ごとに、途中まで編集したモデルでキーを計算し直す。1万件の編集で評価。
-  → `soft_ridge` で U が空、μ = 0 の場合。層ごとのキーの再計算は、由来の追跡（陳腐化の扱い）の先例。
+  → 各層で `Soft(K, V)` と `minimize=λC`、保存なしの編集にあたる（`presets.memit`）。層ごとにキーを計算し直すのは、`then` が後の編集を編集後のモデルで組み立てるのと同じ考え方。
 
 - **[MALMEN: Massive Editing for LLMs via Meta Learning](https://arxiv.org/abs/2311.04661)**（Tan et al., ICLR 2024）[PDF](../third_party/papers/editing/tan2024_malmen.pdf)
   ハイパーネットワークが出したトークンごとの差分を、単純に足さずに `S* = DUᵀ(UUᵀ + λI)⁻¹` で最小二乗にまとめる。保存項はなく、局所性はメタ学習に任せる。
@@ -74,7 +72,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[A Unified Framework for Model Editing](https://arxiv.org/abs/2403.14236)**（Gupta et al., EMNLP 2024 Findings）[PDF](../third_party/papers/editing/gupta2024_emmet.pdf)
   ROME と MEMIT を「保存と記憶」の目的関数でまとめ、等式制約つきのバッチ編集 EMMET（`Δ = R(K_EᵀC₀⁻¹K_E)⁻¹K_EᵀC₀⁻¹`）を導く。条件数が悪いので `+αI` を足しており、実質的に等式を緩めている。EMMET と MEMIT は下流タスクを同じように劣化させる。
-  → 「厳密な編集」は保存を意味しない。実装が黙って厳密性を緩める例でもある。
+  → 「厳密な編集」は保存を意味しない。実装が黙って厳密性を緩める例でもある。`presets.emmet` は、論文に書かれた厳密な目的関数を解く。
 
 - **[Rebuilding ROME](https://arxiv.org/abs/2403.07175)**（Gupta et al., EMNLP 2024）[PDF](../third_party/papers/editing/gupta2024_rebuilding_rome.pdf)
   ROME の逐次編集でモデルが壊れる原因は、元の実装が2種類のキー（平均キーと生のプロンプトのキー）を混ぜていたことだった。直した r-ROME では崩壊しない。
@@ -82,11 +80,11 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[AlphaEdit: Null-Space Constrained Knowledge Editing](https://arxiv.org/abs/2410.02355)**（Fang et al., ICLR 2025, Outstanding Paper）[PDF](../third_party/papers/editing/fang2025_alphaedit.pdf)
   保存するキーの `K₀K₀ᵀ` の固有ベクトルのうち、固有値が1e-2を超えるものを取り除き、残りで射影 P を作る（公開コードでは平均した2次モーメントに対して 2e-2）。最終式は `Δ = RK₁ᵀP(K_pK_pᵀP + K₁K₁ᵀP + I)⁻¹`。P は編集前のモデルで一度だけ計算する。
-  → 「零空間に制限する」は閾値つきの近似で、厳密な保存ではない。マニフェストでは近似として扱う。
+  → 「零空間に制限する」は閾値つきの近似で、厳密な保存ではない。WeightIR では推定した部分空間（`exact=False`）として厳密な部分空間と区別し、`check` が元データでの出力の変化を報告する。`presets.alphaedit` は公開コードの2e-2を使う。
 
 - **[Lifelong Knowledge Editing requires Better Regularization (ENCORE)](https://arxiv.org/abs/2502.01636)**（Gupta et al., EMNLP 2025 Findings）[PDF](../third_party/papers/editing/gupta2025_encore.pdf)
   劣化の原因を、活性値の過剰な最適化と重みのノルムの増大に求める。`RK₁ᵀ(λ_pC₀ + K₁K₁ᵀ + λ_nI)⁻¹` で1万件の逐次編集に耐える。AlphaEdit はリッジ項を外すと崩壊すると報告している。
-  → ノルムの予算（`Norm(le=...)`）が実際に効く根拠。
+  → ノルムの予算（`Norm(B)`）が実際に効く根拠。
 
 - **[Rethinking Residual Distribution in Locate-then-Edit Model Editing (BLUE)](https://arxiv.org/abs/2502.03748)**（Li et al., NeurIPS 2025）[PDF](../third_party/papers/editing/li2025_blue.pdf)
   MEMIT 型の「残差を複数層に分配する」操作そのものが誤差を生むことを示し、境界の層だけを編集する。
@@ -94,11 +92,11 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[FisherEdit](https://arxiv.org/abs/2610.25914)**（Yang et al., 2026 プレプリント）[PDF](../third_party/papers/editing/yang2026_fisheredit.pdf)
   AlphaEdit の射影 P はほぼ恒等写像で（閾値を超える方向は数十しかない）、外しても結果がほとんど変わらないと報告。代わりに対角 Fisher による要素ごとのペナルティを使う。
-  → 対角 Fisher の計量は座標に依存する。ゲージ検査の対象になる。
+  → 対角 Fisher の計量は座標に依存する（C計量は依存しない）。
 
 - **[BetaEdit: Null-Space Constrained Sequential Model Editing](https://www.ijcai.org/proceedings/2026/0508.pdf)**（Liu et al., IJCAI 2026）[PDF](../third_party/papers/editing/liu2026_betaedit.pdf)
   「近似零空間」は知識を漏らし、逐次編集を劣化させると示す。
-  → 閾値つき部分空間の型に、閾値と元データを持たせる理由。
+  → 閾値で推定した部分空間を厳密な部分空間と型で区別し（`exact=False`）、元データを持たせる理由。
 
 ### 1.2 層についての保証と、モデル全体の振る舞い
 
@@ -133,7 +131,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[Reproducibility Study of AlphaEdit](https://arxiv.org/abs/2606.26783)**（Suresh et al., 2026 プレプリント）[PDF](../third_party/papers/editing/suresh2026_alphaedit_reproducibility.pdf)
   約5千件を超えると保護が弱まり、Phi-3 と Gemma-2 では機能しなかった。Gemma-2 の FFN 後の RMSNorm が、導出の前提（更新が残差ストリームに線形に入る）を崩している可能性がある。
-  → 保存の主張は「一つの層、編集前のキー」という前提つきで書く。正規化層の位置もポートの型に含める。
+  → 保存の主張は「一つの層、編集前のキー」という前提つきで書く。正規化層の位置によっては、この前提が崩れる。
 
 ### 構想への含意
 
@@ -193,7 +191,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 ### 構想への含意
 
 - 「言語 → 線形代数の中間表現 → 重み」は、白紙のモデルでは実現している。既存LLMの層に、保存制約と保証つきでコンパイルしたパッチを入れた研究は見つからなかった。
-- どの研究も LayerNorm を取り除くか線形とみなしている。実際のLLMには正規化層があるので、ポートの型に正規化の位置を含める。
+- どの研究も LayerNorm を取り除くか線形とみなしている。実際のLLMには正規化層があるので、層についての保証がどこまで及ぶかは、正規化の位置に左右される。
 
 ---
 
@@ -222,7 +220,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[RegMean: Dataless Knowledge Fusion by Merging Weights](https://arxiv.org/abs/2212.09849)**（Jin et al., ICLR 2023）[PDF](../third_party/papers/merging/jin2023_regmean.pdf)
   線形層ごとに、出力の差の二乗和を最小にする閉形式 `W = (Σ W_i K_i K_iᵀ)(Σ K_i K_iᵀ)⁻¹`（この文書の列の向きで書いた形）。
-  → `merge` の数学的な土台。出力空間で定義するので、入力の座標変換で解が変わらない。
+  → `merge` を作るときの数学的な土台。出力空間で定義するので、入力の座標変換で解が変わらない。
 
 - **[Merging by Matching Models in Task Parameter Subspaces (MaTS)](https://arxiv.org/abs/2312.04339)**（Tam et al., TMLR 2024）[PDF](../third_party/papers/merging/tam2024_mats.pdf)
   マージを線形方程式 `θ* = (ΣC_m)⁻¹ΣC_mθ_m` とみなして共役勾配法で解く。平均・Fisher・RegMean を同じ形で扱える。
@@ -238,7 +236,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[QuaRot](https://arxiv.org/abs/2404.00456)**（Ashkboos et al., NeurIPS 2024）[PDF](../third_party/papers/merging/ashkboos2024_quarot.pdf)
   同じ不変性を使い、アダマール回転を重みに埋め込んで量子化する。
-  → 同じ関数が別の座標で配布されうる。マニフェストは座標系（ゲージ）も記録する。
+  → 同じ関数が別の座標で配布されうる。座標に依存する計量（‖ΔW‖_F）の解は、配布された座標によって変わる。
 
 - **[Equivariant Neural Functional Networks for Transformers](https://arxiv.org/abs/2410.04209)**（Tran et al., ICLR 2025）[PDF](../third_party/papers/merging/tran2025_attention_symmetry.pdf)
   多頭注意の対称性の最大の群が、ヘッドの並べ替えとヘッドごとの一般線形変換 GL(D_k)、GL(D_v) であることを示す。
@@ -285,7 +283,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - 単一サイト・厳密制約の合成則は短い証明で書ける（`then` で過去を保存すれば `joint` と同じ、`merge` は干渉項がゼロのときだけ `joint` と同じ）。多層・ソフト制約・非線形・圧縮後の法則は、まだない。
 - 重み操作の言語（mergekit、BrainSurgery）は「テンソルをどう組み合わせるか」しか書けない。意味（空間・制約・計量・保証）を持たせるのが、この構想の差分。
-- 座標の自由（ゲージ）は残差ストリームでは直交群だが、注意ヘッドや SwiGLU では一般の可逆変換や対角変換になる。計量の選び方は、ポートごとに決める必要がある。
+- 座標の自由（ゲージ）は残差ストリームでは直交群だが、注意ヘッドや SwiGLU では一般の可逆変換や対角変換になる。計量の選び方は、層の入力空間ごとに決める必要がある。
 
 ---
 
@@ -321,7 +319,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[Vehicle](https://arxiv.org/abs/2401.06379)**（Daggitt et al., FSCD 2025）[PDF](../third_party/papers/verification/daggitt2025_vehicle.pdf)
   依存型を持つ仕様言語。一つの仕様を、検証器への問い合わせ・学習の損失関数・Agda の証明に変換する（検証器と損失への変換は Agda で健全性を証明済み）。扱えない仕様は、型検査の説明つきで拒否する。証明はネットワークとデータのファイルのハッシュに紐づき、ファイルが変わると無効になる。
-  → 由来の追跡と、型による拒否の直接の先例。
+  → 型による拒否の直接の先例。
 
 - **[LEACE: Perfect Linear Concept Erasure in Closed Form](https://arxiv.org/abs/2306.03819)**（Belrose et al., NeurIPS 2023）[PDF](../third_party/papers/verification/belrose2023_leace.pdf)
   どんな線形分類器も概念を定数予測より良く当てられない、という保証つきの消去を閉形式で求める。最小変更は活性値の平均二乗変化で測り、その解はあらゆる内積ノルムについて同時に最適。保証は使ったデータ分布に依存する。
@@ -337,13 +335,13 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[Provably Safe Model Updates](https://arxiv.org/abs/2512.01899)**（Elmecker-Plakolm et al., SaTML 2026）[PDF](../third_party/papers/verification/elmeckerplakolm2026_provably_safe_updates.pdf)
   パラメータ空間の領域を認証し、その領域に射影した更新はすべて認証済みとする。LLM では、固定した埋め込みの上の線形ヘッドにだけ使っている。
-  → マニフェストの「統計的」な保証の段階の先例。
+  → 保留データでの統計的な保証の先例。
 
 ### 構想への含意
 
 - 契約の形（仕様、最小変更、修復できなければ「なし」）は、PL・形式手法の分野にすでにある。Transformer でモデル全体の保証が得られた例は、最終層か出力層の編集に限られる。
 - 出力レベルの修復は ReLU の1層だけでも NP 困難で、実用的な手法の多くは不完全。診断では「不可能と証明した」と「見つからなかった」を分ける。
-- 実数上の保証と浮動小数点での保証は別物として記録する。
+- 実数上の保証と浮動小数点での保証は別物として測る（`check` は float64 と、保存する dtype の両方で残差を測る）。
 
 ---
 
@@ -353,7 +351,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[A Mathematical Framework for Transformer Circuits](https://transformer-circuits.pub/2021/framework/index.html)**（Elhage et al., 2021, Web記事）
   各部品が残差ストリームの部分空間を読み書きするという見方と、QK回路・OV回路を導入する。残差ストリームには特権的な基底がなく、特権的な基底を持つのはトークン、注意パターン、MLPの活性値だけ。
-  → ポートごとに基底の性質が違う、という型の設計の出発点。
+  → 層の入力空間ごとに基底の性質が違う。計量の選び方の出発点。
 
 - **[The Linear Representation Hypothesis and the Geometry of LLMs](https://arxiv.org/abs/2311.03658)**（Park et al., ICML 2024）[PDF](../third_party/papers/representations/park2024_linear_representation.pdf)
   ソフトマックスの不変性から、ユークリッド内積が自然な選択ではないことを示し、因果的に分離できる概念が直交する「因果内積」を定義する。ただしこの内積は一意ではない（自由度が残る）。ユークリッド内積で概ね足りるモデルもあれば、足りないモデルもある。
@@ -404,11 +402,11 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[AlphaSteer](https://arxiv.org/abs/2506.07022)**（Sheng et al., ICLR 2026）[PDF](../third_party/papers/representations/sheng2026_alphasteer.pdf)
   活性値の誘導を、無害な活性値に対する零空間制約つきの正則化最小二乗として閉形式で解く。
-  → 活性値のレベルで、`soft_ridge` と同じ形の問題。
+  → 活性値のレベルで、`Soft` の写像と `Exact(U)` の保存とリッジを組み合わせた編集と同じ形の問題。
 
 - **[Concept Ablation Fine-Tuning (CAFT)](https://arxiv.org/abs/2507.16795)**（Casademunt et al., ICML 2026）[PDF](../third_party/papers/representations/casademunt2026_caft.pdf)
   PCA や疎オートエンコーダで見つけた方向を、ファインチューニング中だけ取り除き、学習される更新を制約する。創発的な不整合が 7.0% から 0.51% に下がる。
-  → 解釈できる部分空間を、最適化プログラムの制約として使う先例。
+  → 解釈できる部分空間を、学習則の制約（`Rule(preserve=...)`）として使う先例。
 
 - **[Steering Language Models with Weight Arithmetic](https://arxiv.org/abs/2511.05408)**（Fierro & Roger, ICLR 2026）[PDF](../third_party/papers/representations/fierro2026_weight_arithmetic_steering.pdf)
   逆向きの小さなファインチューニング2つの差から、重み空間での振る舞いの方向を得る。活性値の誘導より分布外に汎化しやすい。
@@ -434,7 +432,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - 「名前 → 部分空間」には形式的な意味論（因果抽象化）があるが、写像のクラスを制限しないと意味がなくなる。
 - 数学能力や日本語能力のような広い能力を、保証つきで部分空間に結びつけた例はない。上位層は「候補を出して検証する」探索として設計する。
-- 計量（内積）の選び方は自明ではない。モデルとポートごとに確かめる。
+- 計量（内積）の選び方は自明ではない。モデルと層ごとに確かめる。
 
 ---
 
@@ -477,7 +475,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[OPTScientist](https://arxiv.org/abs/2607.20486)**（Li et al., 2026 プレプリント）[PDF](../third_party/papers/synthesis/li2026_optscientist.pdf)
   複数のLLMエージェントが、型つきのDSLで最適化器のプログラムを書き、PyTorch にコンパイルする。DSL をマクロで拡張することもできる。11億パラメータのモデルの事前学習で、Muon に近い性能の最適化器を見つけた。
-  → 最適化プログラム版の最も近い先行研究。制約の意味論・保証の記録・言語の比較実験はない。
+  → 学習則の側で最も近い先行研究。制約の意味論と、言語の比較実験はない。
 
 ### 6.3 LLMが仕様やデータを書く／重みを生成する
 
@@ -520,7 +518,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 ### 構想への含意
 
-- 「LLM＋評価器でコードを進化させる」仕組みと、その型検査はすでにある。制約つき最適化を意味論に持つ言語と、保証の記録はない。
+- 「LLM＋評価器でコードを進化させる」仕組みと、その型検査はすでにある。制約つき最適化を意味論に持つ言語はない。
 - 比較実験では、同じバックエンドを使う素の Python エージェント、ランダム探索や進化的探索、学習済み編集器（MEND、MALMEN）、ハイパーネットワーク（Text-to-LoRA）、SEAL 型の仕様を対照に置く。
 - 費用は、無効な候補・評価の回数・シード数まで含めて数える。代理タスクから目標タスクへの選抜を段階的に行う。
 
@@ -560,13 +558,13 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 - **[GaLore](https://arxiv.org/abs/2403.03507)**（Zhao et al., ICML 2024）[PDF](../third_party/papers/optimization/zhao2024_galore.pdf)
   勾配の上位r成分の部分空間に射影し、一定ステップごとに部分空間を取り直す。累積した更新のランクは制限されない。「保存」とは逆に、支配的な部分空間を残す。
-  → ステップごとのランクと、累積したランクを型で区別する。
+  → `Rule(rank=...)` が抑えるのはステップごとのランクで、累積したランクではない。
 
 ### 7.3 ノルムと計量の理論
 
 - **[K-FAC](https://arxiv.org/abs/1503.05671)**（Martens & Grosse, ICML 2015）[PDF](../third_party/papers/optimization/martens2015_kfac.pdf)
   Fisher 行列を、入力活性値の共分散と出力勾配の共分散のクロネッカー積で近似する。減衰やモメンタムがなければ、活性値の可逆なアフィン変換に対して更新の軌跡が不変。
-  → 構想の将来の計量 `tr(G_out ΔW C_in ΔWᵀ)` は K-FAC の計量そのもの。ROME・MEMIT の C⁻¹ は、その入力側の因子だけを使ったもの。
+  → `Rule(metric="covariance")` と AgentOptimizer の `ctx.covariance` は、K-FAC の入力側の因子だけを使った計量（ROME・MEMIT の C⁻¹ も同じ）。出力側の因子も入れた `tr(G_out ΔW C_in ΔWᵀ)` は未実装。
 
 - **[Old Optimizer, New Norm: An Anthology](https://arxiv.org/abs/2409.20325)**（Bernstein & Newhouse, OPT 2024 Workshop）[PDF](../third_party/papers/optimization/bernstein2024_old_optimizer_new_norm.pdf)
   モメンタムなどを外すと、Adam は ℓ∞ 型のノルム、Shampoo はスペクトルノルム、SGD はフロベニウスノルムのもとでの最急降下になる。
@@ -598,7 +596,7 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 
 ### 構想への含意
 
-- 同じ `preserve(S)` でも、最適化器によって正しい変換が違う（SGD と Muon ではそのまま射影すれば保たれ、Adam や符号化では後で射影する必要があり、重み減衰も射影する）。この交換則の管理は、型検査の具体的な仕事になる。
+- 同じ `preserve(S)` でも、最適化器によって正しい変換が違う（SGD と Muon ではそのまま射影すれば保たれ、Adam や符号化では後で射影する必要があり、重み減衰も射影する）。`Rule` は、方向の変換の後で射影し、重み減衰にも同じ射影をかける。
 - 計量の理論は2系統ある。データに依存せず合成できる modular norm と、データに依存し座標変換に不変な K-FAC／C計量。両者を統一した研究は見つからなかった。
 - 最適化器の側で、ユーザーの制約を受け取る学習済み・LLM製の更新則は見つからなかった。
 
@@ -612,8 +610,8 @@ ROME の更新式は、「新しいキーと値の対応を厳密に満たす中
 | 学習済みの編集器 | MEND、MALMEN | `EasyEdit` |
 | ハイパーネットワーク | Text-to-LoRA | `text-to-lora` |
 | LLMが仕様を書く | SEAL 型（データ＋ハイパーパラメータ） | `SEAL` |
-| 同じバックエンドを使うエージェント | 素の Python、JSON 仕様、ルールベース | （このリポジトリで実装） |
+| 同じバックエンドを使うエージェント | 素の Python、JSON 仕様、ルールベース | （このリポジトリで実装する。未着手） |
 | 進化的探索 | ShinkaEvolve、OpenEvolve | `ShinkaEvolve`、`openevolve` |
-| 最適化器 | AdamW、Muon、VeLO | `Muon`、`modula`、`learned_optimization` |
+| 最適化器 | Adam・SGD・Muon（分類と CartPole で比較済み、[experiments.md](experiments.md)）、AdamW、VeLO | `Muon`、`modula`、`learned_optimization` |
 | 評価データ | CounterFact・zsRE、RippleEdits、MQuAKE、合成の評価 | `EasyEdit`、`RippleEdits`、`MQuAKE`、`composable-interventions` |
 | 正解のある環境 | Tracr、InterpBench | `tracr`、`InterpBench` |

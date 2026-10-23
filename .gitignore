@@ -1,6 +1,12 @@
 # Paper PDFs stay local: most of their licenses do not allow redistribution.
 third_party/papers/**/*.pdf
 
+# Downloaded checkpoints, datasets, and experiment outputs
+data/
+
+# API keys
+.env
+
 # Python
 __pycache__/
 *.py[cod]

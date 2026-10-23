@@ -15,7 +15,7 @@ git submodule update --remote third_party/rome    # 上流の最新に更新（�
 
 ## 方針
 
-- コア（`src/weightir`）は、ここにあるコードを import しません。ここのコードは、再現（元の実装と数値が一致するか）と比較の基準として、評価（`evals/`）から使います。
+- リポジトリのどのコードも、ここを import しません（CLAUDE.md）。必要な部分はコピーして手直しし、各ファイルの1行目と [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) に出典を書きます。`third_party/` を消しても、訓練・評価・実験はすべて動きます。ここのコードを直接使うのは、移植した結果が元の実装と一致するかを一回だけ確かめるとき（パリティチェック）に限ります。
 - ライセンスが付いていないリポジトリ（`unified-model-editing`、`task_vectors`、`composable-interventions`）は、読むだけにしてコードを流用しません。
 - 作業ツリーが大きい4件（`RippleEdits`、`MQuAKE`、`APRNN`、`SEAL`）は、登録してコミットを固定しただけで、まだ取得していません。必要になったら上のコマンドで取得してください。
 - ライセンスは、GitHub が判定したもの（2026年10月時点）です。流用する前に、各リポジトリの LICENSE を確認してください。
