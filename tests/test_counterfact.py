@@ -8,6 +8,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from evals import counterfact as cf
+from evals.generation import greedy
 
 from conftest import HF
 
@@ -62,10 +63,10 @@ def reference(model, tok, prompt, target):
     return nll, logits[len(p) - 1 : -1].argmax(-1).tolist() == ids[len(p) :]
 
 
-def one_continuation(model, tok, prompt):
-    """The 20-token greedy continuation of one unpadded prompt."""
+def one_continuation(model, tok, prompt, n=20):
+    """The n-token greedy continuation of one unpadded prompt."""
     ids = tok(prompt, return_tensors="pt")
-    out = model.generate(**ids, max_new_tokens=20, do_sample=False, pad_token_id=tok.eos_token_id)
+    out = model.generate(**ids, max_new_tokens=n, do_sample=False, pad_token_id=tok.eos_token_id)
     return tok.decode(out[0, ids["input_ids"].shape[1]:], skip_special_tokens=True)
 
 
@@ -98,6 +99,12 @@ def test_evaluate_matches_unpadded_chain_rule(name):
         # left-padded batches of up to 5 or all 13 prompts continue as each prompt does alone
         assert flatten(got, "text") == conts
         assert flatten(got, "gen_true") == [TRUE in c for c in conts]
+
+    # one budget per prompt: each row of a batch is cut to its own length (RippleEdits' reference judging)
+    budgets = [3, 11, 1, 7]
+    with torch.no_grad():
+        assert greedy(model, tok, prompts[:4], max_new_tokens=budgets) == [
+            one_continuation(model, tok, p, n) for p, n in zip(prompts[:4], budgets)]
 
 
 def test_scores_follow_rome():

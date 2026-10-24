@@ -49,9 +49,9 @@ def _edit(model, method: str, hp: dict, sites: list[str], Cs: dict | None, templ
 
 
 def main(model: str, method: str, dataset: str, *, start: int = 0, size: int = 100, batch: int = 1,
-         sequential: bool = False, out: str | None = None) -> dict:
+         sequential: bool = False, reference: bool = False, out: str | None = None) -> dict:
     """Run one baseline (``model`` is a presets.HPARAMS key); return the printed summary, {"pre": ..., "post": ...}
-    for CounterFact."""
+    for CounterFact. ``reference``: judge RippleEdits as its reference code does (evals.rippleedits.evaluate)."""
     if method not in METHODS or method not in presets.HPARAMS[model]:
         raise ValueError(f"presets.HPARAMS has no {method} settings for {model}")
     if method == "rome" and batch != 1:
@@ -59,6 +59,8 @@ def main(model: str, method: str, dataset: str, *, start: int = 0, size: int = 1
     if batch > 1 and dataset != "multi_counterfact":
         raise ValueError(f"{dataset} holds conflicting records; batches need multi_counterfact, as in MEMIT")
     ripple = dataset.startswith("rippleedits_")
+    if reference and not ripple:
+        raise ValueError("--reference is RippleEdits' way of judging; CounterFact has none")
     hp = presets.HPARAMS[model][method]
     m = Model.load(presets.HPARAMS[model]["model"])
     sites = [presets.HPARAMS[model]["site"].format(layer) for layer in hp["layers"]]
@@ -66,7 +68,10 @@ def main(model: str, method: str, dataset: str, *, start: int = 0, size: int = 1
     Cs = None if method == "rome" and not hp["mom2_adjustment"] else {s: data.covariance(m, s) for s in sites}
     if ripple:
         records = re_.load(dataset.removeprefix("rippleedits_"))[start:start + size]
-        evaluate, fs, ids = re_.evaluate, [r["fact"] for r in records], [r["id"] for r in records]
+        fs, ids = [r["fact"] for r in records], [r["id"] for r in records]
+
+        def evaluate(hf_model, tok, example):
+            return re_.evaluate(hf_model, tok, example, reference=reference)
     else:
         records = cf.load(dataset, size=start + size)[start:]
         evaluate, fs = cf.evaluate, [cf.fields(r) for r in records]
@@ -76,7 +81,7 @@ def main(model: str, method: str, dataset: str, *, start: int = 0, size: int = 1
     pre = [evaluate(m.hf, m.tok, r) for r in records]
     post, info, prev = [None] * len(records), [None] * len(records), None
     out = Path(out or f"data/runs/editing/presets/{model}_{method}_{dataset}_b{batch}"
-                      f"{'_seq' if sequential else ''}.jsonl")
+                      f"{'_seq' if sequential else ''}{'_ref' if reference else ''}.jsonl")
     out.parent.mkdir(parents=True, exist_ok=True)
     print(f"appending {len(records)} rows to {out}", flush=True)
 
@@ -126,5 +131,7 @@ if __name__ == "__main__":
     p.add_argument("--size", type=int, default=100, help="number of records")
     p.add_argument("--batch", type=int, default=1, help="edits per batch (ROME: 1)")
     p.add_argument("--sequential", action="store_true", help="keep edits across batches; score after the last one")
+    p.add_argument("--reference", action="store_true",
+                   help="RippleEdits: judge prompt + len(prompt) + 30 tokens, as its reference code (default: 20 tokens)")
     p.add_argument("--out", help="JSON lines file to append to (default: under data/runs/editing/presets/)")
     main(**vars(p.parse_args()))

@@ -15,9 +15,10 @@ of its test queries are answered. ``scores``: per group, the share of the run ca
 mean over the examples whose edit took (the edited model answers the edit's own query) and which ran a case of that
 group, as the reference's evaluation.py averages.
 
-Departures from the reference: an answer is looked for in the generated tokens only (the reference also searched
-the prompt); a continuation has up to 20 tokens (the reference's max_length added characters to tokens); the model
-is edited once per example rather than once per group.
+This follows the paper's text: an answer is looked for in a continuation of up to 20 tokens. The reference code,
+which produced the paper's numbers, generates up to max_length = (characters of the prompt) + 30 tokens, prompt
+included, and looks in the prompt as well; ``evaluate(..., reference=True)`` judges that way. Either way the model
+is edited once per example (the reference edits once per group).
 """
 import json
 import random
@@ -161,10 +162,17 @@ def judge(example: dict, texts: dict[str, str]) -> dict:
 
 
 @torch.no_grad()
-def evaluate(hf_model, tok, example: dict, *, max_new_tokens: int = 20, batch_size: int = 32) -> dict:
-    """``judge`` on the greedy continuations of every distinct prompt of ``example``, with them under "texts"."""
+def evaluate(hf_model, tok, example: dict, *, reference: bool = False, batch_size: int = 32) -> dict:
+    """``judge`` on the greedy continuations of every distinct prompt of ``example`` (20 tokens), with them under
+    "texts". reference=True: as QueryExecutor.execute_query, len(prompt) + 30 tokens in all, judged on prompt +
+    continuation."""
     prompts = sorted({example["fact"]["query"]["prompt"], *(q["prompt"] for q in _queries(example))})
-    texts = dict(zip(prompts, greedy(hf_model, tok, prompts, max_new_tokens=max_new_tokens, batch_size=batch_size)))
+    if reference:
+        budgets = [len(p) + 30 - len(tok(p)["input_ids"]) for p in prompts]
+        conts = greedy(hf_model, tok, prompts, max_new_tokens=budgets, batch_size=batch_size)
+        texts = {p: p + c for p, c in zip(prompts, conts)}
+    else:
+        texts = dict(zip(prompts, greedy(hf_model, tok, prompts, max_new_tokens=20, batch_size=batch_size)))
     return {**judge(example, texts), "texts": texts}
 
 
