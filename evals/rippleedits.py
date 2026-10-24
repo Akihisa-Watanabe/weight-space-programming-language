@@ -162,10 +162,10 @@ def judge(example: dict, texts: dict[str, str]) -> dict:
 
 
 @torch.no_grad()
-def evaluate(hf_model, tok, example: dict, *, reference: bool = False, batch_size: int = 32) -> dict:
+def evaluate(hf_model, tok, example: dict, *, reference: bool = False, batch_size: int = 8) -> dict:
     """``judge`` on the greedy continuations of every distinct prompt of ``example`` (20 tokens), with them under
     "texts". reference=True: as QueryExecutor.execute_query, len(prompt) + 30 tokens in all, judged on prompt +
-    continuation."""
+    continuation. Batches of 8 keep the KV cache of GPT-2 XL's long reference continuations within an 11 GB GPU."""
     prompts = sorted({example["fact"]["query"]["prompt"], *(q["prompt"] for q in _queries(example))})
     if reference:
         budgets = [len(p) + 30 - len(tok(p)["input_ids"]) for p in prompts]
