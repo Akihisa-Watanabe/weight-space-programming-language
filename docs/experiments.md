@@ -1,232 +1,88 @@
-# 実験
+# Experiments
 
-この文書は、実験の定義（何を、どの条件で、何と比べ、何で測るか）と、ここまでの結果をまとめたものです。設計は [architecture.md](architecture.md)、根拠となる論文は [related_works.md](related_works.md) にあります。スクリプトは `experiments/`、結果は `data/runs/` にあります。
+**What computations can this language implement or change inside pretrained models?**
 
-## 1. 問い
+Start with a concrete change to a trained network, express it as a program, and measure the result. Preservation is a task-specific choice. See the [design](architecture.md).
 
-1. **依頼から LLM が書いた編集プログラムで、モデルに機能を加えられるか。** 機能の追加・保存・合成・未見の組み合わせの4つの基準（[architecture.md](architecture.md) 1節）で、同じバックエンドで動かした既存の編集手法と比べます。最初の課題は GPT-2 での事実の編集です（2節、未実施）。
-2. **主実験。** 同じ数値計算部分を使ったとき、LLM は素の Python や JSON より、この DSL で良い編集を書けるか（7節、未実施）。
-3. **既存の編集手法を、プリセットとして再現できるか。** ROME・EMMET・MEMIT・AlphaEdit を WeightIR の編集として書き、CounterFact で元の論文に近い数値が出るか（3節）。1と2の比較の基準になります。
-4. **内側の道具は働くか。** 毎ステップの重みの変化を `wir.edit` の閉形式の解だけで作って、ネットワークを学習できるか。LLM が試行を重ねると、その手順は良くなるか（分類、強化学習。4〜5節、実施済み）。
+## Next experiments
 
-## 2. 事実の編集（GPT-2）
+Build one useful operation on a pretrained model, then make it reusable:
 
-依頼ごとに、LLM が編集プログラムを書き、試し、直します（[architecture.md](architecture.md) 8節）。未実施です。
+1. Choose a computation and define its intended effect on the model's output.
+2. Locate candidate components through analysis or interventions, then change their weights.
+3. Evaluate model outputs on held-out inputs under matching conditions.
+4. Make the operation reusable and test combinations with other operations.
 
-| 項目 | 設定 |
-|---|---|
-| モデル | GPT-2 XL（1.5B。ROME・MEMIT・RippleEdits の論文と同じ）を GPU サーバーで。手元での開発と試しは GPT-2 medium（ROME の公開設定がある。層8） |
-| 依頼 | CounterFact のレコードの書き換えの指定を文章にしたもの。例：「"The Eiffel Tower is located in" に、Paris ではなく Rome と答えるようにする。ほかの事実は変えない」 |
-| LLM に見せないもの | CounterFact の言い換え・近くの事実・主語の性質・生成用のプロンプトと、RippleEdits の質問。評価にだけ使う |
-| 試し | 1件の依頼につき決めた回数まで。報告に入るのは、コンパイルの診断と、LLM が自分で選んだプロンプトへの編集後のモデルの答え |
-| 機能の追加 | 書き換えのプロンプトと言い換えで、新しい目的語が元の目的語より確からしいか（ES・PS）。貪欲な生成で新しい目的語が出るか。RippleEdits の主語の別名（SA） |
-| 保存 | 近くの事実（NS）、主語のほかの性質、一般の文章（wikitext）での損失の変化。RippleEdits の保存（PV）と関係の特異性（RS） |
-| 未見の組み合わせ | RippleEdits の論理的な一般化（LG）と合成（CI・CII） |
-| 合成 | 複数件を順に加えたとき、前の編集とそれぞれの保存が保たれるか |
-| 比較 | ROME・MEMIT・AlphaEdit のプリセット（3節）を、同じ件、同じ評価で。RippleEdits の論文にある GPT-2 XL の ROME・MEMIT・MEND の数値も参考にする |
-| LLM | Haiku 5.5 から。少数の件で費用を測ってから見積もる |
+Measure the requested change, generalization, failures, and computational cost. Check preservation when requested. Keep evaluation inputs separate from development inputs, and distinguish successful activation interventions from successful weight changes.
 
-RippleEdits の測り方は論文に合わせます。編集が効いた件と、編集前のモデルが前提の事実に答えられた質問だけを使い、20トークンまでの生成に正解（またはその別名）が現れたら正解とします。論文の GPT-2 XL では、ROME の6基準の平均は部分集合（Recent・Random・Popular）によって46〜58%です。
+## Recorded results
 
-## 3. 既存の編集手法（CounterFact）
+Results recorded on **October 23, 2026** cover the matrix-editing and program-execution components.
 
-| 項目 | 設定 |
-|---|---|
-| 手法 | `weightir.presets` の rome・emmet・memit・alphaedit。設定は `presets.HPARAMS`（gpt2-xl、gpt-j-6b、llama-3-8b。gpt2-medium は ROME だけ） |
-| データ | CounterFact（`--dataset counterfact`）、バッチ編集には multi_counterfact |
-| 統計量 | 入力の2次モーメント C は wikitext-103 の1万記事から推定し、`data/stats/` にキャッシュ |
-| 指標 | ROME の ES・PS・NS（確率の比較）と EM・PM・NM（確率の差）、S = ES・PS・NS の調和平均、MEMIT の argmax 正答率。いずれも teacher forcing で測る |
-| 結果 | `data/runs/editing/presets/` |
+### Fact editing
 
-```sh
-.venv/bin/python experiments/editing/presets.py --model gpt2-medium --method rome --dataset counterfact --size 50
-.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method rome --dataset counterfact --size 100
-.venv/bin/python experiments/editing/presets.py --model gpt2-xl --method memit --dataset multi_counterfact --size 1000 --batch 1000
-```
+ROME edited layer 8 of GPT-2 medium on the first 50 CounterFact records, using Mac MPS. Input statistics came from 10,000 Wikitext-103 articles. Scores are success percentages based on target-token probabilities; the overall score is their harmonic mean.
 
-小さなランダムのモデルで、各手法の閉形式と一致することはテストしました。実モデルでは、GPT-2 medium の ROME を CounterFact の先頭50件で動かしました（2026-10-23、Mac の MPS）。値は ×100 です。
+| Model | Overall | Requested facts | Paraphrases | Neighboring facts |
+|---|---:|---:|---:|---:|
+| GPT-2 medium, original | 27.2 | 18.0 | 24.0 | 75.6 |
+| GPT-2 medium, ROME | 86.4 | 100.0 | 96.0 | 70.0 |
 
-| | S | ES | PS | NS | EM | PM | NM |
-|---|---|---|---|---|---|---|---|
-| GPT-2 medium、編集前 | 27.2 | 18.0 | 24.0 | 75.6 | −4.8 | −4.1 | 5.7 |
-| GPT-2 medium、ROME | 86.4 | 100.0 | 96.0 | 70.0 | 85.7 | 48.7 | 4.5 |
-| （参考）ROME の論文の GPT-2 XL、編集前 | 30.5 | 22.2 | 24.7 | 78.1 | −4.8 | −5.0 | 5.0 |
-| （参考）ROME の論文の GPT-2 XL、ROME | 89.2 | 100.0 | 96.4 | 75.4 | 97.9 | 62.7 | 4.2 |
+These measurements use teacher forcing. Statistics took 28 minutes; editing took about five seconds per record. All four presets have numerical tests, but GPT-2 XL and real-model runs of MEMIT, EMMET, and AlphaEdit remain unperformed. The [editing experiment](../experiments/editing/presets.py) supports CounterFact and RippleEdits.
 
-論文の値は7,500件の平均で、モデルの大きさも違いますが、同じ傾向です。層8の C の計算に28分、編集は1件約5秒かかりました。GPT-2 XL での実行と、MEMIT・EMMET・AlphaEdit の実モデルでの実行はまだです。GPU サーバーで行います。
+### Learning through weight-edit programs
 
-## 4. 内側の道具：学習
+These experiments train small networks from scratch through repeated weight edits. They test execution tools, not mechanistic changes to pretrained models.
 
-毎ステップの重みの変化を `wir.edit` の閉形式の解だけで作る学習です（[architecture.md](architecture.md) 9節）。1回の閉形式で実現できない編集のための道具なので、ここではまず、ネットワークをはじめから学習させられるかを確かめています。
+The LLM and tuned Adam each received 20 trials, restarting from seed 100. Selection used validation accuracy or how early CartPole was solved. The LLM never received test scores. Evaluation used separate seeds. Data augmentation was disabled.
 
-### 4.1 共通の設定
+**Classification.** MNIST and Fashion-MNIST used two 256-unit ReLU hidden layers, batches of 128, and three CPU epochs. A fixed split reserved 5,000 images for validation and 55,000 for training. Test accuracy is mean ± standard deviation over seeds 0–2; times are approximate.
 
-最適化器は [experiments/optimizers.py](../experiments/optimizers.py) の `OPTIMIZERS` から名前で選びます。スクリプトの中で変わるのは `optimizer = OPTIMIZERS[name](model)` の1行だけです。どの最適化器も torch の closure の形（`loss = optimizer.step(closure)`）で回します。シードが同じなら、初期値とバッチの順番はどの最適化器でも同じです。
+| Method | MNIST (%) | Fashion-MNIST (%) | Time |
+|---|---:|---:|---:|
+| Adam | 97.23 ± 0.19 | 87.30 ± 0.54 | 1 s |
+| Tuned Adam | 97.29 ± 0.19 | 86.91 ± 0.50 | 1 s |
+| SGD | 97.43 ± 0.17 | 86.83 ± 0.78 | 1 s |
+| Muon | 96.27 ± 0.23 | 87.52 ± 0.32 | 140 s |
+| WeightIR Adam | 97.37 ± 0.27 | 87.11 ± 0.52 | 1 s |
+| WeightIR orthogonal updates | 96.76 ± 0.20 | 88.25 ± 0.25 | 5 s |
+| WeightIR covariance updates | 97.79 ± 0.19 | 88.64 ± 0.09 | 6 s |
+| Fixed edit program | 97.40 ± 0.10 | 88.30 ± 0.31 | 44 s |
+| Haiku 5.5 edit program | 97.76 ± 0.14 | 89.33 ± 0.07 | 44 s |
 
-| 名前 | 中身 | 設定 |
-|---|---|---|
-| `adam` | `torch.optim.Adam` | lr 1e-3 |
-| `sgd` | `torch.optim.SGD` | lr 0.05、momentum 0.9 |
-| `muon` | `torch.optim.Muon`（2次元の重み）と AdamW（その他） | lr 0.02（AdamW は 1e-3） |
-| `wir-adam` | `Rule(direction="adam")` | lr 1e-3 |
-| `wir-orth` | `Rule(direction="orth")`（Newton–Schulz による直交化。Muon 相当）。バイアスは Adam | lr 0.02（バイアスは 1e-3） |
-| `wir-cov` | `Rule(direction="momentum", metric="covariance")`。バイアスはモメンタム SGD | lr 0.05、M = C + mean(diag C)·I |
-| `agent-fixed` | `ProgramOptimizer` で例のプログラム（`EXAMPLE_PROGRAM`）を動かす。LLMなし | step 0.3 |
-| `agent-<モデル>` | LLM（`--model`、既定は `claude-haiku-5-5`、effort high）が20回の試行で選んだプログラムを `ProgramOptimizer` で動かす（`experiments/search.py --method llm`）。プログラムは新しい入力を作れない（データ拡張の禁止） | 課題ごとに探索 |
-| `adam-tuned` | Adam。学習率を 1e-4〜1e-1 の対数で等間隔に20個試して選ぶ（`experiments/search.py --method adam-lr`） | 課題ごとに探索 |
+**CartPole.** REINFORCE used a learned value baseline, separate networks with two 64-unit tanh hidden layers, and 600 episodes. Solved means a trailing 100-episode mean return reaching 475. The table lists the first such episode for seeds 0–4; a dash means unsolved.
 
-- 学習ループは、各ステップの損失と、ほかの測定値（分類は検証の成績、CartPole はリターン）を `observe` で最適化器に渡します（プログラムは `ctx` で読める）。
-- **探索**（`agent-<モデル>` と `adam-tuned`）：試行は、試行用のシード100から本番と同じ長さの学習を1本走らせ、課題のスコアで比べます。LLM は試行のたびに報告（検証の成績やリターンの推移、学習損失、時間、層ごとの編集の統計、プログラムの `print`）と全試行の成績表を見て、次のプログラムを書きます。テストの成績は見せません。1回の試行の時間の上限は、分類が300秒、CartPole が120秒です（超えたら失敗）。最良の試行のプログラムや学習率を、評価用のシード（分類 0〜2、CartPole 0〜4）で学習させて比べます。
-- 探索の全試行（プログラム、LLM が書いた理由、トークン数、スコア、報告）と会話の全文は `data/runs/search/<課題>-<方法>.json` に保存します。
-- LLMを使う条件には `ANTHROPIC_API_KEY` が要ります。`.env` に置き、`uv run --env-file .env python ...` で実行します。`.env` は git で追跡しません。
-- GPU サーバーでは、CLAUDE.md の指示どおり `CUDA_VISIBLE_DEVICES=2,3 taskset -c 16-31,48-63` を付けて実行します。
+| Method | Solved | Episodes to threshold |
+|---|---:|---|
+| Adam | 5/5 | 416, 314, 439, 312, 399 |
+| Tuned Adam | 5/5 | 337, 247, 403, 293, 467 |
+| SGD | 2/5 | —, 446, 539, —, — |
+| Muon | 5/5 | 263, 302, 225, 180, 220 |
+| WeightIR Adam | 5/5 | 405, 390, 380, 360, 457 |
+| WeightIR orthogonal updates | 5/5 | 261, 199, 191, 275, 440 |
+| WeightIR covariance updates | 0/5 | —, —, —, —, — |
+| Fixed edit program | 5/5 | 213, 183, 241, 195, 177 |
+| Haiku 5.5 edit program | 5/5 | 177, 185, 143, 156, 249 |
 
-### 4.2 分類
+One covariance-update run diverged at episode 41. Reaching the threshold did not always mean performance stayed there.
 
-| 項目 | 設定 |
-|---|---|
-| データ | MNIST、Fashion-MNIST（torchvision）。訓練データ60,000枚のうち、決まった5,000枚を検証用に取り分け、残り55,000枚で学習する。画素は学習用の55,000枚の平均と標準偏差で標準化 |
-| モデル | MLP 784-256-256-10（ReLU） |
-| 学習 | バッチ128、3エポック（1エポック430ステップ）、損失はバッチの交差エントロピーの平均、CPU |
-| 検証 | 100ステップごとに、検証用の5,000枚で損失と精度（`val_loss`、`val_acc`）を測る |
-| 探索のスコア | 学習の終わりの `val_acc`（高いほど良い。同じなら短い時間の方が良い） |
-| シード | 0, 1, 2 |
-| 指標 | 3エポック後のテスト精度、検証精度が目標の値に初めて届いたステップと時間、全体の時間 |
-| 結果 | `data/runs/classification/<dataset>/<optimizer>-seed<seed>.json`（検証の推移 `curve` を含む） |
+The LLM mostly changed step sizes and schedules; Adam tuned only a constant learning rate. Each task had one search and few evaluation seeds. Edit programs were slower than Adam. An earlier augmentation-enabled run reached 99.22% on MNIST under different rules and is excluded.
+
+## Run the existing experiments
+
+Follow the [setup](../README.md) and GPU [server instructions](../CLAUDE.md#server-setup). LLM search needs an Anthropic API key in the local environment file.
 
 ```sh
-.venv/bin/python experiments/classification/train.py --dataset mnist --optimizer wir-cov --epochs 3 --seed 0
+# Fact editing
+uv run python experiments/editing/presets.py --model gpt2-medium --method rome --dataset counterfact --size 50
+
+# Classification and reinforcement learning
+uv run python experiments/classification/train.py --dataset mnist --optimizer wir-cov --epochs 3 --seed 0
+uv run python experiments/rl/cartpole.py --optimizer wir-orth --episodes 600 --seed 0
+
+# Search over edit programs, or Adam's learning rate
 uv run --env-file .env python experiments/search.py --task mnist --method llm --trials 20
-.venv/bin/python experiments/search.py --task mnist --method adam-lr --trials 20
+uv run python experiments/search.py --task mnist --method adam-lr --trials 20
 ```
 
-### 4.3 強化学習（CartPole）
-
-| 項目 | 設定 |
-|---|---|
-| 環境 | CartPole-v1（gymnasium） |
-| 方法 | 価値関数をベースラインにした REINFORCE。方策と価値関数は別々の MLP（4-64-64-出力、tanh）。1エピソードに1回更新 |
-| 損失 | −mean(log π(a\|s)·A) + mean((V(s) − G)²)。G は割引率0.99の残りのリターンに (1 − γ) を掛けたもの（0以上1未満）、A は G − V をエピソード内で標準化したもの |
-| 測定値 | 各ステップで、学習に使ったエピソードのリターン（`episode_return`）を `observe` で渡す。A を標準化しているので、損失はリターンとほとんど連動しない（相関0.11） |
-| 探索のスコア | 連続100エピソードの平均リターンが475に届いたエピソード（早いほど良い。届かなければ、届いた試行すべてより下で、最後の100エピソードの平均で比べる） |
-| 学習 | 600エピソード |
-| シード | 0〜4 |
-| 指標 | 直近100エピソードの平均リターンが初めて475（CartPole-v1 の基準）に達したエピソード。重みが有限でなくなったら打ち切り、そのエピソードを記録。最後の100エピソードの平均リターン |
-| 結果 | `data/runs/rl/cartpole/<optimizer>-seed<seed>.json` |
-
-```sh
-.venv/bin/python experiments/rl/cartpole.py --optimizer wir-orth --episodes 600 --seed 0
-uv run --env-file .env python experiments/search.py --task cartpole --method llm --trials 20
-```
-
-## 5. 結果：内側の道具（2026-10-23 時点）
-
-`agent-haiku-5-5` は、Haiku 5.5 が試行用のシード100で20回試して選んだプログラムで、下の数値はそれを評価用のシードで学習させたものです。データ拡張は禁止しています。`adam-tuned` は、学習率を同じ20回で選んだ Adam です。
-
-### 分類
-
-テスト精度（%、評価用のシード 0〜2 の平均 ± 標準偏差）、検証精度が目標（MNIST 97.0%、Fashion-MNIST 87.5%）に初めて届いたステップ（シードごと、100ステップ刻み、— は届かず）、1本の時間です。
-
-| 最適化器 | MNIST | 97.0% に届いたステップ | Fashion-MNIST | 87.5% に届いたステップ | 1本の時間 |
-|---|---|---|---|---|---|
-| adam | 97.23 ± 0.19 | 1200, 1100, — | 87.30 ± 0.54 | 1100, 1100, 900 | 約1秒 |
-| adam-tuned | 97.29 ± 0.19 | 1200, 900, 800 | 86.91 ± 0.50 | —, —, — | 約1秒 |
-| sgd | 97.43 ± 0.17 | 800, 1100, 1000 | 86.83 ± 0.78 | —, 1100, 1100 | 約1秒 |
-| muon | 96.27 ± 0.23 | —, —, — | 87.52 ± 0.32 | 800, 900, 900 | 約140秒 |
-| wir-adam | 97.37 ± 0.27 | 1200, 1100, — | 87.11 ± 0.52 | 1100, 1100, 900 | 約1秒 |
-| wir-orth | 96.76 ± 0.20 | 1200, —, — | 88.25 ± 0.25 | 700, 700, 500 | 約5秒 |
-| wir-cov | **97.79 ± 0.19** | 500, 700, 600 | 88.64 ± 0.09 | 400, 500, 500 | 約6秒 |
-| agent-fixed | 97.40 ± 0.10 | 1000, —, 1000 | 88.30 ± 0.31 | 600, 600, 500 | 約44秒 |
-| agent-haiku-5-5 | **97.76 ± 0.14** | **500, 600, 500** | **89.33 ± 0.07** | **400, 400, 300** | 約44秒 |
-| （参考）agent-opus-5-5-augment | 99.22 ± 0.02 | 200, 200, 200 | — | — | 約225秒 |
-
-`agent-opus-5-5-augment` は、データ拡張を禁止する前のルールで Opus 5.5 が選んだプログラムです（下の「以前の形」）。ほかとは条件が違います。
-
-### CartPole
-
-| 最適化器 | 解けた数 | 解けたエピソード（評価用のシード 0〜4） | 平均 | 最後の100エピソードの平均リターン |
-|---|---|---|---|---|
-| adam | 5/5 | 416, 314, 439, 312, 399 | 376 | 469, 498, 489, 496, 482 |
-| adam-tuned | 5/5 | 337, 247, 403, 293, 467 | 349 | 493, 451, 491, 495, 333 |
-| sgd | 2/5 | —, 446, 539, —, — | — | 138, 238, 437, 93, 364 |
-| muon | 5/5 | 263, 302, 225, 180, 220 | 238 | 500, 492, 492, 489, 391 |
-| wir-adam | 5/5 | 405, 390, 380, 360, 457 | 398 | 440, 499, 499, 477, 485 |
-| wir-orth | 5/5 | 261, 199, 191, 275, 440 | 273 | 486, 482, 478, 500, 418 |
-| wir-cov | 0/5 | —（1本は41エピソードで重みが発散） | — | — |
-| agent-fixed | 5/5 | 213, 183, 241, 195, 177 | 202 | 467, 494, 454, 491, 494 |
-| agent-haiku-5-5 | 5/5 | **177, 185, 143, 156, 249** | **182** | 468, 489, 486, 466, 493 |
-
-### 何が分かったか
-
-- 重みの編集の繰り返しだけで、普通の最適化器と同じようにネットワークを学習できます。編集で学習する方法は、Adam のおよそ半分のステップで目標の精度に届きます。ただし1ステップが重いので、この小さなモデルを CPU で回す限り、時間では Adam に勝てません。
-- その手順を、Haiku 5.5 が20回の試行（費用は3課題で $0.06）で改善できました。試行用のシードで選んだ改善は、評価用のシードでも保たれています。
-  - MNIST：学習率を探した Adam より0.47ポイント高く、`wir-cov` と同じ水準
-  - Fashion-MNIST：全条件で最も高い
-  - CartPole：解けるのが全条件で最も早い
-- LLM が変えたのは主に歩幅の決め方で、言語ならではの機能（厳密な写像、部分空間の保存、予算）はほとんど使われませんでした。精度の小さな差では、重みの上に言語を置く狙いを示せないので、主役を事実の編集（2節）に移しました（[architecture.md](architecture.md) 10節）。
-
-### LLM が書いたもの
-
-各試行のプログラムは `data/runs/search/<課題>-llm-haiku-5-5/trial-NN.py` にあり、先頭のコメントに成績と LLM が書いた理由が入っています。
-
-- **MNIST**：最良は、例のプログラムの歩幅を1.0からコサインで0.02まで下げたものです。重みのモメンタム、1ステップに2回の編集、重み減衰、単位行列の計量、自分で作った計量、層ごとの歩幅も試しましたが、効きませんでした。18回目では、報告の編集の統計から自分のバグ（層の名前を数字と比べていた）に気づいて直しています。
-- **Fashion-MNIST**：最良は、歩幅を1.0からコサインで0.05まで下げ、出力層だけ歩幅を半分にしたものです。これも一度バグで効いておらず、編集の統計から気づいて直しました。
-- **CartPole**：最良は、層の役割ごとに編集を分けたものです。
-  - 方策の層は、勾配に沿って動かした目標への編集で、damping を0.2に下げる。
-  - 価値関数の層は、目標をリターン G そのものにした編集を、`ctx.refresh()` で測り直しながら1ステップに2回行う。
-  
-  ランクの予算も試しました。試行どうしの差は大きく、似た設定でも143〜542エピソードに散りました。
-
-### 以前の形
-
-- **1本の学習の途中で LLM が書き直す形（AgentOptimizer）**：MNIST・Fashion-MNIST・CartPole で1本ずつ試しました。LLM は歩幅のスケジュールしか変えませんでした。プログラムを試す場所が本番の学習しかなく、悪い変更を戻せないためだと考え、試行ループに変えました。
-- **データ拡張を禁止する前（Opus 5.5、MNIST）**：最良のプログラムは、画像の水増し（ずらし・回転・弾性変形）、ラベルの平滑化、重みの平均化、1ステップに最大4回の更新を組み合わせ、テスト精度99.22%でした（1本225秒）。重みの操作ではなく一般的な学習の工夫で勝っていたため、データ拡張を禁止しました。
-
-**注意**
-
-- `adam-tuned` は学習率だけを探していて、スケジュールは使っていません。LLM のプログラムはスケジュール（コサイン減衰）を使っているので、Adam にもスケジュールを探させた比較が要ります。
-- シード数が少なく（分類3、CartPole 5）、探索も各課題1回だけです。
-- `agent-fixed` と LLM のプログラムは、毎ステップ層ごとに float64 の連立方程式を CPU で解く実装なので、同じ考え方の `wir-cov` より7倍ほど遅くなっています。
-
-## 6. LLM の費用
-
-料金は100万トークンあたりで、Opus 5.5 が入力 $4・出力 $20・キャッシュ書き込み $5・キャッシュ読み出し $0.20、Haiku 5.5 が入力 $0.10・出力 $0.50（キャッシュは書き込み1.25倍、読み出し0.1倍）です。
-
-| 実験 | 呼び出し | 費用 |
-|---|---|---|
-| 探索、Haiku 5.5、MNIST（20回） | 20回 | $0.021 |
-| 探索、Haiku 5.5、Fashion-MNIST（20回） | 20回 | $0.019 |
-| 探索、Haiku 5.5、CartPole（20回） | 20回 | $0.020 |
-| 探索、Opus 5.5、MNIST（20回、データ拡張あり） | 20回 | $1.77 |
-| 以前の形（1本の学習の途中で書き直す）、Opus 5.5 | 1本あたり3〜8回 | 1本 $0.05〜0.17 |
-
-- Opus のプログラムは長くなり（最後は253行）、出力トークンが多くなりました。Haiku は1試行あたり出力1,000トークン前後です。
-- 探索1回の時間は、ほぼ試行の学習の時間です（分類で20〜30分、CartPole で10分ほど）。
-- 探索は1時間ほどかかり、その間にネットワークが切れることがあります。呼び出しはストリーミングにせず、接続の失敗・時間切れ・サーバーの混雑のときは、SDK に応答の受け取りまで含めて最大60回（約10分）送り直させます。
-
-## 7. まだやっていない実験
-
-**主実験：同じバックエンドでの言語の比較。** 事実の編集（2節）などの課題について、LLMが編集を書く条件を、同じ weightir のソルバの上で比べます。
-
-1. LLM＋素の Python（型や検査なし、同じ数値関数）
-2. LLM＋JSON の仕様
-3. LLM＋型つきの埋め込みDSL
-4. ルールベースのプランナー＋型つきDSL
-5. 進化的探索（ShinkaEvolve、OpenEvolve）＋Python または DSL
-
-LLMのトークン、コンパイルと評価の回数、計算時間を予算として数え、シード数 × 反復回数のフロンティアとして報告します。
-
-**テストベッド**
-
-| 記号 | テストベッド | 確かめること | 状態 |
-|---|---|---|---|
-| T0 | 合成した線形問題 | ソルバと合成則が、独立に解いた KKT 系と一致するか | テストとして実施（`tests/test_solve.py`） |
-| T1 | Tracr のコンパイル済みモデル、InterpBench | 正解の部分空間が分かる環境で、プログラムが正しい部分空間に当たるか | 未着手 |
-| T2 | GPT-2 での事実の編集（CounterFact、RippleEdits） | 依頼から書いた編集プログラムが、4つの基準でプリセットより良いか。プリセットが元の論文に近い数値になるか | 未着手（2〜3節） |
-| T3 | MQuAKE、汎用能力の評価、逐次編集（〜1万件）、圧縮との合成 | 層についての保証が、モデル全体でどこまで効くか。MQuAKE の論文は GPT-J と Vicuna-7B を使い、編集後の多段の質問の正答率が大きく落ちた（GPT-J の MEMIT で40.5%→7.0%）。同じ大きさのモデルを GPU サーバーで使う | 未着手 |
-| T4 | 制約つきの学習・ファインチューニング | `Rule(preserve=...)` や LLM のプログラムの保存が、普通の最適化器に比べて元の能力を守るか | 制約なしの学習（4〜5節）だけ実施 |
-
-**評価の注意**
-
-- 事実の編集は、teacher forcing ではなく実際の生成でも測ります。評価方法を見直すと、成功率が報告値の96.8%から38.5%に下がった例があります（Mirage of Model Editing）。3節の指標はまだ teacher forcing だけです。2節では生成でも測ります。
-- エージェントが触れられない保留テストセットを使います。PostTrainBench では、エージェントがテストデータで学習してしまいました。
+See the [optimizer definitions](../experiments/optimizers.py) and [search runner](../experiments/search.py). Results and generated programs go in the local data directory, outside Git.
