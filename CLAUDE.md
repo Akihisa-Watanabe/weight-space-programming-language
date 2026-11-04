@@ -2,8 +2,6 @@
 
 ## Overview
 
-This is the repository for the blog **Scaling Neural Networks with Agentic Optimization**
-
 The research: let a user say what a model should do, and have an LLM write a **typed weight-edit program** that implements it inside the network, in a DSL embedded in Python (working name WeightIR). A program says which layer (site), which inputs (keys) should map to which outputs (values), what must not change (the preserved subspace, earlier edits), within what budget, and how several edits combine. A compiler turns each edit into a constrained optimization problem on one weight matrix, solves it (in closed form where possible), re-checks the constraints on the original data, and returns the weight change ΔW, or refuses with a reason. The core problem (without a C, the change is measured by ‖ΔW‖_F²):
 
 ```text
