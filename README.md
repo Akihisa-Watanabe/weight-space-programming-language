@@ -1,4 +1,4 @@
-# agentic_optimization
+# Weight-Space Programming Language
 
 「モデルに何をさせるか」を、重みの上の言語で書く研究のリポジトリです。使い手がモデルに加えたい機能と変えてはいけない振る舞いを依頼すると、LLM がその機能をネットワークの中で実現する**編集プログラム**を書きます。プログラムは Python に埋め込んだ型つきの DSL（作業名 WeightIR）で、どの層の、どの入力（キー）に、何を出力させ（値）、何を変えず、どの予算で変えるか、複数の編集をどう組み合わせるかを書きます。コンパイラは、各編集を1つの重み行列についての制約つき最適化問題に変換して閉形式で解き、元のデータで制約を測り直してから、重みの差分 ΔW を返します。満たせない指定は理由をつけて拒否します。
 
@@ -106,7 +106,7 @@ UV_CACHE_DIR=/scratch/$USER/uv-cache uv sync --python /scratch/$USER/uv-python/c
 ## 構成
 
 ```text
-agentic_optimization/
+weight-space-programming-language/
 ├── src/weightir/
 │   ├── spec.py        編集の DSL（Keys・Values・Subspace・Covariance、Exact・Soft、Rank・Norm、edit・joint）
 │   ├── solve.py       閉形式の求解、予算、矛盾の判定（Infeasible）

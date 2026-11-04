@@ -1,5 +1,5 @@
 [project]
-name = "agentic-optimization"
+name = "weight-space-programming-language"
 version = "0.1.0"
 description = "WeightIR: typed, contract-based weight-edit programs that an LLM writes and a compiler lowers to verified patches"
 readme = "README.md"
